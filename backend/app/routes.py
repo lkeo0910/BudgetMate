@@ -17,29 +17,24 @@ async def register(user_data: UserCreate):
         )
     
     try:
-        # Check if user exists
-        cursor = await db.execute(
-            "SELECT id FROM users WHERE username = ?",
-            (user_data.username,)
+        existing_user = await db.fetchrow(
+            "SELECT id FROM users WHERE username = $1",
+            user_data.username,
         )
-        existing_user = await cursor.fetchone()
         if existing_user:
             raise HTTPException(
                 status_code=400,
                 detail="Username already exists"
             )
         
-        # Create user
         hashed_password = hash_password(user_data.password)
-        cursor = await db.execute(
-            """
-            INSERT INTO users (username, email, password_hash)
-            VALUES (?, ?, ?)
-            """,
-            (user_data.username, user_data.email, hashed_password)
+        inserted = await db.fetchrow(
+            "INSERT INTO users (username, email, password_hash) VALUES ($1, $2, $3) RETURNING id",
+            user_data.username,
+            user_data.email,
+            hashed_password,
         )
-        user_id = cursor.lastrowid
-        await db.commit()
+        user_id = inserted["id"]
         
         access_token = create_access_token(user_id, user_data.username)
         return TokenResponse(
@@ -69,11 +64,10 @@ async def login(credentials: UserLogin):
         )
     
     try:
-        cursor = await db.execute(
-            "SELECT id, username, email, password_hash FROM users WHERE username = ?",
-            (credentials.username,)
+        user = await db.fetchrow(
+            "SELECT id, username, email, password_hash FROM users WHERE username = $1",
+            credentials.username,
         )
-        user = await cursor.fetchone()
         
         if not user:
             raise HTTPException(
@@ -81,7 +75,10 @@ async def login(credentials: UserLogin):
                 detail="Invalid username or password"
             )
         
-        user_id, username, email, password_hash = user
+        user_id = user["id"]
+        username = user["username"]
+        email = user["email"]
+        password_hash = user["password_hash"]
         
         if not verify_password(credentials.password, password_hash):
             raise HTTPException(
@@ -143,11 +140,10 @@ async def get_current_user(authorization: str = Header(None)):
         )
     
     try:
-        cursor = await db.execute(
-            "SELECT id, username, email FROM users WHERE id = ?",
-            (user_id,)
+        user = await db.fetchrow(
+            "SELECT id, username, email FROM users WHERE id = $1",
+            user_id,
         )
-        user = await cursor.fetchone()
         
         if not user:
             raise HTTPException(
@@ -155,11 +151,10 @@ async def get_current_user(authorization: str = Header(None)):
                 detail="User not found"
             )
         
-        user_id, username, email = user
         return UserResponse(
-            id=user_id,
-            username=username,
-            email=email,
+            id=user["id"],
+            username=user["username"],
+            email=user["email"],
             created_at=None
         )
     except HTTPException:

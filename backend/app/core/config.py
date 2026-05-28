@@ -14,6 +14,11 @@ class Settings(BaseSettings):
     ocr_space_api_key: str | None = None
     jwt_secret_key: str
     cors_origin: str = "*"
+    database_fallback_to_sqlite: bool = True
+    sqlite_database_path: str = "budgetmate.db"
+    postgres_connect_timeout: float = 8
+    mongodb_required: bool = False
+    mongodb_server_selection_timeout_ms: int = 8000
 
     model_config = SettingsConfigDict(
         env_file=ENV_FILE,

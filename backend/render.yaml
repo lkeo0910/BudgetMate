@@ -8,6 +8,10 @@ services:
     envVars:
       - key: CORS_ORIGIN
         value: "*"
+      - key: DATABASE_FALLBACK_TO_SQLITE
+        value: "false"
+      - key: MONGODB_REQUIRED
+        value: "true"
       - key: DATABASE_URL
         sync: false
       - key: MONGODB_URI
