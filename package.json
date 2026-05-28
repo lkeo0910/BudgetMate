@@ -1,0 +1,14 @@
+{
+  "scripts": {
+    "install:mobile": "npm.cmd install --prefix mobile",
+    "mobile": "npm.cmd run start --prefix mobile",
+    "backend": "cd backend && uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload",
+    "dev": "concurrently \"npm run backend\" \"npm run mobile\""
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  },
+  "dependencies": {
+    "expo": "^56.0.6"
+  }
+}

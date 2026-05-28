@@ -1,0 +1,17 @@
+node_modules/
+mobile/node_modules/
+backend/node_modules/
+mobile/dist/
+backend/.env
+mobile/.env
+frontend/.env
+frontend/.env.local
+web/.env
+web/.env.local
+.env
+.env.local
+.expo/
+npm-debug.log*
+*.log
+__pycache__/
+*.pyc
