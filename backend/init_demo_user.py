@@ -40,7 +40,7 @@ async def create_demo_user():
                 hashed
             )
             
-            print(f"✓ Demo user created: {user}")
+            print(f"OK Demo user created: {user}")
             print(f"  Username: demo_user")
             print(f"  Password: password123")
             print(f"  Email: demo@budgetmate.com")
@@ -48,7 +48,7 @@ async def create_demo_user():
         await pool.close()
         
     except Exception as e:
-        print(f"✗ Error: {e}")
+        print(f"ERROR: {e}")
         raise
 
 

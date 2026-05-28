@@ -20,10 +20,6 @@ async def init_databases():
         max_size=20,
     )
     
-    # MongoDB
-    mongo_client = AsyncIOMotorClient(settings.mongodb_uri)
-    mongo_db = mongo_client["budgetmate"]
-    
     # Create user table in PostgreSQL
     async with pg_pool.acquire() as conn:
         await conn.execute("""
@@ -36,6 +32,10 @@ async def init_databases():
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
+    
+    # MongoDB
+    mongo_client = AsyncIOMotorClient(settings.mongodb_uri)
+    mongo_db = mongo_client["budgetmate"]
     
     # Create MongoDB collections indexes
     await mongo_db["chat_messages"].create_index("user_id")
@@ -62,3 +62,5 @@ def get_pg_pool():
 
 def get_mongo_db():
     return mongo_db
+
+
