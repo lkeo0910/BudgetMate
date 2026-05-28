@@ -1,14 +1,18 @@
 import React from "react";
 import { StyleSheet, Text, TextInput, View } from "react-native";
-import { Card } from "../components/Card";
+import { Card, EmptyState } from "../components/Card";
 import { IconBubble, PrimaryButton } from "../components/FinanceUI";
 import { Screen } from "../components/Layout";
-import { formatVND, transactions } from "../data/finance";
+import { formatVND } from "../data/finance";
+import { useFinanceData } from "../hooks/useFinanceData";
 import { colors } from "../theme";
 
 export default function TransactionsScreen() {
+  const { error, loading, refresh, transactions } = useFinanceData();
+
   return (
-    <Screen eyebrow="Transactions" title="Transaction History" subtitle="Search, review, and categorize spending from the mobile feed.">
+    <Screen eyebrow="Transactions" title="Transaction History" subtitle="Search, review, and categorize spending from the mobile feed." refreshing={loading} onRefresh={refresh}>
+      {!!error && <EmptyState title="Could not load transactions" message={error} />}
       <Card>
         <View style={styles.search}>
           <IconBubble name="search-outline" color={colors.muted} softColor="#f1f5f9" size={18} />
@@ -20,21 +24,25 @@ export default function TransactionsScreen() {
         </View>
       </Card>
 
-      <Card>
-        {transactions.map((item) => (
-          <View key={item.id} style={styles.row}>
-            <IconBubble name={item.type === "INCOME" ? "arrow-down-circle-outline" : "arrow-up-circle-outline"} color={item.type === "INCOME" ? colors.success : colors.rose} size={18} />
-            <View style={styles.copy}>
-              <Text style={styles.vendor}>{item.vendor}</Text>
-              <Text style={styles.note}>{item.note}</Text>
-              <Text style={styles.meta}>{item.category} • {item.date}</Text>
+      {transactions.length ? (
+        <Card>
+          {transactions.map((item) => (
+            <View key={item.id} style={styles.row}>
+              <IconBubble name={item.type === "INCOME" ? "arrow-down-circle-outline" : "arrow-up-circle-outline"} color={item.type === "INCOME" ? colors.success : colors.rose} size={18} />
+              <View style={styles.copy}>
+                <Text style={styles.vendor}>{item.vendor}</Text>
+                <Text style={styles.note}>{item.note}</Text>
+                <Text style={styles.meta}>{item.category} • {item.date}</Text>
+              </View>
+              <Text style={[styles.amount, item.type === "INCOME" ? styles.income : styles.expense]}>
+                {item.type === "INCOME" ? "+" : "-"}{formatVND(item.amount)}
+              </Text>
             </View>
-            <Text style={[styles.amount, item.type === "INCOME" ? styles.income : styles.expense]}>
-              {item.type === "INCOME" ? "+" : "-"}{formatVND(item.amount)}
-            </Text>
-          </View>
-        ))}
-      </Card>
+          ))}
+        </Card>
+      ) : (
+        <EmptyState title="No transactions yet" message="New accounts start empty. The seeded transaction history belongs only to test_user." />
+      )}
     </Screen>
   );
 }

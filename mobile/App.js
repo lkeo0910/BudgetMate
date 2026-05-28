@@ -9,6 +9,7 @@ import BudgetScreen from "./src/screens/BudgetScreen";
 import TransactionsScreen from "./src/screens/TransactionsScreen";
 import ReportsScreen from "./src/screens/ReportsScreen";
 import MoreScreen from "./src/screens/MoreScreen";
+import { AuthProvider } from "./src/context/AuthContext";
 import { colors } from "./src/theme";
 
 const Tab = createBottomTabNavigator();
@@ -72,5 +73,9 @@ export default function App() {
     );
   }
 
-  return <AppTabs />;
+  return (
+    <AuthProvider value={user}>
+      <AppTabs />
+    </AuthProvider>
+  );
 }

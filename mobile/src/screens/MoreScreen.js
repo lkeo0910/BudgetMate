@@ -1,54 +1,73 @@
 import React from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
-import { Card } from "../components/Card";
+import { Card, EmptyState } from "../components/Card";
 import { IconBubble, ProgressBar, PrimaryButton } from "../components/FinanceUI";
 import { Screen } from "../components/Layout";
-import { accounts, categories, formatVND, goals } from "../data/finance";
+import { formatVND, goals } from "../data/finance";
+import { useFinanceData } from "../hooks/useFinanceData";
 import { colors } from "../theme";
 
 export default function MoreScreen() {
+  const { categories, error, hasData, loading, refresh, summary } = useFinanceData();
+  const accountCards = hasData
+    ? [
+        { id: "income", title: "Tracked Income", subtitle: formatVND(summary.income), icon: "trending-up-outline", color: colors.success },
+        { id: "expenses", title: "Tracked Expenses", subtitle: formatVND(summary.expenses), icon: "trending-down-outline", color: colors.rose },
+        { id: "balance", title: "Net Balance", subtitle: formatVND(summary.balance), icon: "wallet-outline", color: colors.primary }
+      ]
+    : [];
+
   return (
-    <Screen eyebrow="More" title="Workspace" subtitle="Accounts, goals, categories, AI assistant, profile, and settings from the web dashboard.">
-      <Card>
-        <Text style={styles.section}>Accounts</Text>
-        {accounts.map((item) => (
-          <View key={item.id} style={styles.row}>
-            <IconBubble name={item.icon} color={item.color} />
-            <View style={styles.copy}>
-              <Text style={styles.title}>{item.title}</Text>
-              <Text style={styles.meta}>{item.subtitle}</Text>
-            </View>
-          </View>
-        ))}
-      </Card>
-
-      <Card>
-        <Text style={styles.section}>Savings Goals</Text>
-        {goals.map((goal) => {
-          const progress = Math.round((goal.current / goal.target) * 100);
-          return (
-            <View key={goal.id} style={styles.goal}>
-              <View style={styles.goalTop}>
-                <Text style={styles.title}>{goal.title}</Text>
-                <Text style={styles.percent}>{progress}%</Text>
+    <Screen eyebrow="More" title="Workspace" subtitle="Accounts, goals, categories, AI assistant, profile, and settings from the web dashboard." refreshing={loading} onRefresh={refresh}>
+      {!!error && <EmptyState title="Could not load workspace" message={error} />}
+      {accountCards.length ? (
+        <Card>
+          <Text style={styles.section}>Accounts</Text>
+          {accountCards.map((item) => (
+            <View key={item.id} style={styles.row}>
+              <IconBubble name={item.icon} color={item.color} />
+              <View style={styles.copy}>
+                <Text style={styles.title}>{item.title}</Text>
+                <Text style={styles.meta}>{item.subtitle}</Text>
               </View>
-              <ProgressBar progress={progress} color={goal.color} />
-              <Text style={styles.meta}>{formatVND(goal.current)} of {formatVND(goal.target)}</Text>
-            </View>
-          );
-        })}
-      </Card>
-
-      <Card>
-        <Text style={styles.section}>Categories</Text>
-        <View style={styles.chips}>
-          {categories.map((item) => (
-            <View key={item.id} style={[styles.chip, { borderColor: `${item.color}44`, backgroundColor: `${item.color}10` }]}>
-              <Text style={[styles.chipText, { color: item.color }]}>{item.name}</Text>
             </View>
           ))}
-        </View>
-      </Card>
+        </Card>
+      ) : (
+        <EmptyState title="No workspace data yet" message="New accounts start empty. The seeded workspace data belongs only to test_user." />
+      )}
+
+      {hasData && (
+        <Card>
+          <Text style={styles.section}>Savings Goals</Text>
+          {goals.map((goal) => {
+            const progress = Math.round((goal.current / goal.target) * 100);
+            return (
+              <View key={goal.id} style={styles.goal}>
+                <View style={styles.goalTop}>
+                  <Text style={styles.title}>{goal.title}</Text>
+                  <Text style={styles.percent}>{progress}%</Text>
+                </View>
+                <ProgressBar progress={progress} color={goal.color} />
+                <Text style={styles.meta}>{formatVND(goal.current)} of {formatVND(goal.target)}</Text>
+              </View>
+            );
+          })}
+        </Card>
+      )}
+
+      {categories.length ? (
+        <Card>
+          <Text style={styles.section}>Categories</Text>
+          <View style={styles.chips}>
+            {categories.map((item) => (
+              <View key={item.id} style={[styles.chip, { borderColor: `${item.color}44`, backgroundColor: `${item.color}10` }]}>
+                <Text style={[styles.chipText, { color: item.color }]}>{item.name}</Text>
+              </View>
+            ))}
+          </View>
+        </Card>
+      ) : null}
 
       <Card>
         <Text style={styles.section}>AI Assistant</Text>

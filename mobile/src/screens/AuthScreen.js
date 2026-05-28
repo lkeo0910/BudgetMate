@@ -15,6 +15,17 @@ const initialRegister = {
   avatar_url: ""
 };
 
+function getAuthErrorMessage(err, fallback) {
+  const detail = err.response?.data?.detail;
+  if (typeof detail === "string") {
+    return detail;
+  }
+  if (Array.isArray(detail)) {
+    return detail.map((item) => item.msg).filter(Boolean).join(" ");
+  }
+  return err.message || fallback;
+}
+
 export default function AuthScreen({ onAuthenticated }) {
   const [mode, setMode] = useState("login");
   const [loginForm, setLoginForm] = useState(initialLogin);
@@ -29,6 +40,11 @@ export default function AuthScreen({ onAuthenticated }) {
 
   async function submitLogin() {
     setError("");
+    if (!loginForm.username.trim() || !loginForm.password) {
+      setError("Enter your username and password.");
+      return;
+    }
+
     setLoading(true);
     try {
       const result = await loginUser({
@@ -37,7 +53,7 @@ export default function AuthScreen({ onAuthenticated }) {
       });
       onAuthenticated?.(result);
     } catch (err) {
-      setError(err.response?.data?.detail || "Could not sign in. Check your username and password.");
+      setError(getAuthErrorMessage(err, "Could not sign in. Check your username and password."));
     } finally {
       setLoading(false);
     }
@@ -45,6 +61,18 @@ export default function AuthScreen({ onAuthenticated }) {
 
   async function submitRegister() {
     setError("");
+    if (!registerForm.username.trim()) {
+      setError("Username is required.");
+      return;
+    }
+    if (registerForm.username.trim().length < 3) {
+      setError("Username must be at least 3 characters.");
+      return;
+    }
+    if (registerForm.password.length < 6) {
+      setError("Password must be at least 6 characters.");
+      return;
+    }
     if (registerForm.password !== registerForm.confirmPassword) {
       setError("Passwords do not match.");
       return;
@@ -61,7 +89,7 @@ export default function AuthScreen({ onAuthenticated }) {
       });
       onAuthenticated?.(result);
     } catch (err) {
-      setError(err.response?.data?.detail || "Could not create account. Please try again.");
+      setError(getAuthErrorMessage(err, "Could not create account. Please try again."));
     } finally {
       setLoading(false);
     }

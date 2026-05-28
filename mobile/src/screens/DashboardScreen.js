@@ -1,17 +1,26 @@
 import React from "react";
 import { StyleSheet, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { Card, SectionTitle } from "../components/Card";
+import { Card, EmptyState, SectionTitle } from "../components/Card";
 import { GradientPanel, IconBubble, MetricCard, ProgressBar } from "../components/FinanceUI";
 import { Screen } from "../components/Layout";
-import { categories, formatVND, insights, summary, transactions } from "../data/finance";
+import { formatVND } from "../data/finance";
+import { useFinanceData } from "../hooks/useFinanceData";
 import { colors } from "../theme";
 
 export default function DashboardScreen() {
+  const { categories, error, hasData, loading, refresh, summary, transactions } = useFinanceData();
   const recent = transactions.slice(0, 5);
+  const insights = hasData
+    ? [
+        { id: "positive", severity: "positive", text: `You saved ${formatVND(Math.max(summary.income - summary.expenses, 0))} from tracked activity.` },
+        { id: "info", severity: "info", text: `${transactions.length} transactions are connected to this account.` }
+      ]
+    : [];
 
   return (
-    <Screen eyebrow="Dashboard" title="Financial Overview" subtitle="Cash flow, budget health, upcoming pressure, and recent activity in one mobile command center.">
+    <Screen eyebrow="Dashboard" title="Financial Overview" subtitle="Cash flow, budget health, upcoming pressure, and recent activity in one mobile command center." refreshing={loading} onRefresh={refresh}>
+      {!!error && <EmptyState title="Could not load finance data" message={error} />}
       <Card style={styles.heroCard}>
         <GradientPanel colors={["#0f766e", "#14b8a6"]}>
           <View style={styles.heroTop}>
@@ -33,6 +42,8 @@ export default function DashboardScreen() {
           </View>
         </GradientPanel>
       </Card>
+
+      {!hasData && <EmptyState title="No finance data yet" message="This account has no transactions or categories. The seeded demo data belongs only to test_user." />}
 
       <View style={styles.metrics}>
         <MetricCard label="Remaining" value={formatVND(summary.remainingBudget)} icon="pie-chart-outline" color={colors.teal} />
@@ -58,7 +69,7 @@ export default function DashboardScreen() {
       <SectionTitle title="Category Activity" />
       <Card>
         {categories.filter((item) => item.type === "expense").slice(0, 5).map((item) => {
-          const ratio = Math.round((item.activity / item.assigned) * 100);
+          const ratio = item.assigned ? Math.round((item.activity / item.assigned) * 100) : 0;
           return (
             <View key={item.id} style={styles.categoryRow}>
               <IconBubble name={item.icon} color={item.color} size={18} />
@@ -73,6 +84,7 @@ export default function DashboardScreen() {
             </View>
           );
         })}
+        {!categories.length && <Text style={styles.emptyInline}>No categories yet.</Text>}
       </Card>
 
       <SectionTitle title="Smart Insights" />
@@ -102,6 +114,7 @@ export default function DashboardScreen() {
             </Text>
           </View>
         ))}
+        {!recent.length && <Text style={styles.emptyInline}>No transactions yet.</Text>}
       </Card>
     </Screen>
   );
@@ -135,6 +148,7 @@ const styles = StyleSheet.create({
   transactionTitle: { color: colors.ink, fontWeight: "900" },
   transactionMeta: { color: colors.muted, marginTop: 3, fontSize: 12, fontWeight: "700" },
   transactionAmount: { maxWidth: 110, textAlign: "right", fontWeight: "900", fontSize: 12 },
+  emptyInline: { color: colors.muted, fontWeight: "800", lineHeight: 20 },
   income: { color: colors.success },
   expense: { color: colors.rose }
 });

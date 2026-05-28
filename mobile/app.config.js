@@ -3,7 +3,7 @@ export default {
     name: "BudgetMate",
     slug: "budgetmate-mobile",
     version: "1.0.0",
-    platforms: ["ios", "android"],
+    platforms: ["ios", "android", "web"],
     orientation: "portrait",
     userInterfaceStyle: "light",
     splash: {

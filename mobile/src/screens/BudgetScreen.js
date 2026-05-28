@@ -1,17 +1,20 @@
 import React from "react";
 import { StyleSheet, Text, View } from "react-native";
-import { Card, SectionTitle } from "../components/Card";
+import { Card, EmptyState, SectionTitle } from "../components/Card";
 import { IconBubble, ProgressBar, PrimaryButton } from "../components/FinanceUI";
 import { Screen } from "../components/Layout";
-import { categories, formatVND, summary } from "../data/finance";
+import { formatVND } from "../data/finance";
+import { useFinanceData } from "../hooks/useFinanceData";
 import { colors } from "../theme";
 
 export default function BudgetScreen() {
+  const { categories, error, loading, refresh, summary } = useFinanceData();
   const expenseRows = categories.filter((item) => item.type === "expense");
   const incomeRows = categories.filter((item) => item.type === "income");
 
   return (
-    <Screen eyebrow="Budget" title="Monthly Plan" subtitle="A mobile version of the web budget planner with assigned, activity, and available amounts.">
+    <Screen eyebrow="Budget" title="Monthly Plan" subtitle="A mobile version of the web budget planner with assigned, activity, and available amounts." refreshing={loading} onRefresh={refresh}>
+      {!!error && <EmptyState title="Could not load budget" message={error} />}
       <Card>
         <View style={styles.availableTop}>
           <View>
@@ -27,14 +30,10 @@ export default function BudgetScreen() {
       </Card>
 
       <SectionTitle title="Expense Categories" />
-      <Card>
-        {expenseRows.map((item) => <BudgetRow key={item.id} item={item} />)}
-      </Card>
+      {expenseRows.length ? <Card>{expenseRows.map((item) => <BudgetRow key={item.id} item={item} />)}</Card> : <EmptyState title="No expense categories" message="This account has no budget categories yet." />}
 
       <SectionTitle title="Income Categories" />
-      <Card>
-        {incomeRows.map((item) => <BudgetRow key={item.id} item={item} income />)}
-      </Card>
+      {incomeRows.length ? <Card>{incomeRows.map((item) => <BudgetRow key={item.id} item={item} income />)}</Card> : <EmptyState title="No income categories" message="This account has no income categories yet." />}
     </Screen>
   );
 }
