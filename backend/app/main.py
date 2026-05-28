@@ -1,12 +1,29 @@
 from fastapi import APIRouter, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from contextlib import asynccontextmanager
 
 from app.core.config import get_settings
+from app.database import init_databases, close_databases
+from app.routes import router as auth_router
 
 
 settings = get_settings()
 
-app = FastAPI(title="BudgetMate API", version="1.0.0")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup
+    await init_databases()
+    yield
+    # Shutdown
+    await close_databases()
+
+
+app = FastAPI(
+    title="BudgetMate API",
+    version="1.0.0",
+    lifespan=lifespan
+)
 
 origins = ["*"] if settings.cors_origin == "*" else [
     origin.strip() for origin in settings.cors_origin.split(",") if origin.strip()
@@ -95,4 +112,5 @@ def contact() -> dict[str, str]:
     return {"message": "Message received"}
 
 
+app.include_router(auth_router)
 app.include_router(api)
