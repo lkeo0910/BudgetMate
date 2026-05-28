@@ -3,25 +3,27 @@ import { NavigationContainer } from "@react-navigation/native";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { StatusBar } from "expo-status-bar";
 import { Ionicons } from "@expo/vector-icons";
-import HomeScreen from "./src/screens/HomeScreen";
-import AboutScreen from "./src/screens/AboutScreen";
-import SkillsScreen from "./src/screens/SkillsScreen";
-import ProjectsScreen from "./src/screens/ProjectsScreen";
-import EducationScreen from "./src/screens/EducationScreen";
-import LeadershipScreen from "./src/screens/LeadershipScreen";
-import ContactScreen from "./src/screens/ContactScreen";
+import DashboardScreen from "./src/screens/DashboardScreen";
+import TransactionsScreen from "./src/screens/TransactionsScreen";
+import BudgetScreen from "./src/screens/BudgetScreen";
+import GoalsScreen from "./src/screens/GoalsScreen";
+import AccountsScreen from "./src/screens/AccountsScreen";
+import CategoriesScreen from "./src/screens/CategoriesScreen";
+import ReportsScreen from "./src/screens/ReportsScreen";
+import AIAssistantScreen from "./src/screens/AIAssistantScreen";
 import { colors } from "./src/theme";
 
 const Tab = createBottomTabNavigator();
 
 const iconMap = {
-  Home: ["home", "home-outline"],
-  About: ["person", "person-outline"],
-  Skills: ["sparkles", "sparkles-outline"],
-  Projects: ["briefcase", "briefcase-outline"],
-  Education: ["school", "school-outline"],
-  Leadership: ["trophy", "trophy-outline"],
-  Contact: ["chatbubble", "chatbubble-outline"]
+  Dashboard: ["home", "home-outline"],
+  Transactions: ["list", "list-outline"],
+  Budget: ["pie-chart", "pie-chart-outline"],
+  Goals: ["flag", "flag-outline"],
+  Accounts: ["wallet", "wallet-outline"],
+  Categories: ["layers", "layers-outline"],
+  Reports: ["bar-chart", "bar-chart-outline"],
+  AI: ["sparkles", "sparkles-outline"]
 };
 
 export default function App() {
@@ -33,7 +35,7 @@ export default function App() {
           headerShown: false,
           tabBarActiveTintColor: colors.primary,
           tabBarInactiveTintColor: colors.muted,
-          tabBarLabelStyle: { fontSize: 10, fontWeight: "700" },
+          tabBarLabelStyle: { fontSize: 9, fontWeight: "700" },
           tabBarStyle: {
             height: 70,
             paddingTop: 8,
@@ -43,18 +45,19 @@ export default function App() {
             backgroundColor: colors.surface
           },
           tabBarIcon: ({ focused, color, size }) => {
-            const names = iconMap[route.name] || iconMap.Home;
+            const names = iconMap[route.name] || iconMap.Dashboard;
             return <Ionicons name={focused ? names[0] : names[1]} size={size} color={color} />;
           }
         })}
       >
-        <Tab.Screen name="Home" component={HomeScreen} />
-        <Tab.Screen name="About" component={AboutScreen} />
-        <Tab.Screen name="Skills" component={SkillsScreen} />
-        <Tab.Screen name="Projects" component={ProjectsScreen} />
-        <Tab.Screen name="Education" component={EducationScreen} />
-        <Tab.Screen name="Leadership" component={LeadershipScreen} />
-        <Tab.Screen name="Contact" component={ContactScreen} />
+        <Tab.Screen name="Dashboard" component={DashboardScreen} />
+        <Tab.Screen name="Transactions" component={TransactionsScreen} />
+        <Tab.Screen name="Budget" component={BudgetScreen} />
+        <Tab.Screen name="Goals" component={GoalsScreen} />
+        <Tab.Screen name="Accounts" component={AccountsScreen} />
+        <Tab.Screen name="Categories" component={CategoriesScreen} />
+        <Tab.Screen name="Reports" component={ReportsScreen} />
+        <Tab.Screen name="AI" component={AIAssistantScreen} />
       </Tab.Navigator>
     </NavigationContainer>
   );
