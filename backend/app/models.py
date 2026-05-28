@@ -6,6 +6,8 @@ class UserCreate(BaseModel):
     username: str = Field(..., min_length=3, max_length=50)
     password: str = Field(..., min_length=6)
     email: str | None = None
+    phone_number: str | None = None
+    avatar_url: str | None = None
 
 
 class UserLogin(BaseModel):
@@ -17,6 +19,8 @@ class UserResponse(BaseModel):
     id: int
     username: str
     email: str | None
+    phone_number: str | None = None
+    avatar_url: str | None = None
     created_at: datetime | None = None
 
     class Config:

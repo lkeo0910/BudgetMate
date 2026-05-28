@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 
 from app.core.config import get_settings
 from app.database import init_databases, close_databases
-from app.routes import router as auth_router
+from app.routes import finance_router, router as auth_router
 
 
 settings = get_settings()
@@ -113,4 +113,6 @@ def contact() -> dict[str, str]:
 
 
 app.include_router(auth_router)
+app.include_router(auth_router, prefix="/api/v1")
+app.include_router(finance_router, prefix="/api/v1")
 app.include_router(api)

@@ -14,7 +14,7 @@ class Settings(BaseSettings):
     ocr_space_api_key: str | None = None
     jwt_secret_key: str
     cors_origin: str = "*"
-    database_fallback_to_sqlite: bool = True
+    database_fallback_to_sqlite: bool = False
     sqlite_database_path: str = "budgetmate.db"
     postgres_connect_timeout: float = 8
     mongodb_required: bool = False
