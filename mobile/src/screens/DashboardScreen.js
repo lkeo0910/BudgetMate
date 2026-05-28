@@ -1,177 +1,140 @@
 import React from "react";
-import { StyleSheet, Text, View, ScrollView } from "react-native";
-import { LinearGradient } from "expo-linear-gradient";
+import { StyleSheet, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { Card, SectionTitle } from "../components/Card";
-import { LoadingState } from "../components/LoadingState";
-import { MetricGrid } from "../components/MetricGrid";
-import { Notice, Screen } from "../components/Layout";
-import { useResource } from "../hooks/useResource";
+import { GradientPanel, IconBubble, MetricCard, ProgressBar } from "../components/FinanceUI";
+import { Screen } from "../components/Layout";
+import { categories, formatVND, insights, summary, transactions } from "../data/finance";
 import { colors } from "../theme";
 
 export default function DashboardScreen() {
-  const { data: dashboard, loading, error, fromFallback, reload } = useResource("/dashboard");
-
-  if (loading && !dashboard) return <LoadingState />;
-
-  const dashboardData = dashboard || {
-    balance: "164.149.000 ₫",
-    income: "45.000.000 ₫",
-    expenses: "32.500.000 ₫",
-    savings: "7.330.000 ₫",
-    health_score: 100,
-    currency: "VND"
-  };
+  const recent = transactions.slice(0, 5);
 
   return (
-    <Screen
-      eyebrow="BudgetMate"
-      title="Financial Overview"
-      subtitle="Your money, at a glance"
-      refreshing={loading}
-      onRefresh={reload}
-    >
-      <Notice text={fromFallback ? `Using demo data because API unavailable: ${error}` : null} />
-
-      <Card style={styles.balanceCard}>
-        <LinearGradient colors={[colors.primary, colors.teal]} style={styles.balanceGradient}>
-          <Text style={styles.balanceLabel}>Total Balance</Text>
-          <Text style={styles.balanceAmount}>{dashboardData.balance}</Text>
-        </LinearGradient>
+    <Screen eyebrow="Dashboard" title="Financial Overview" subtitle="Cash flow, budget health, upcoming pressure, and recent activity in one mobile command center.">
+      <Card style={styles.heroCard}>
+        <GradientPanel colors={["#0f766e", "#14b8a6"]}>
+          <View style={styles.heroTop}>
+            <View>
+              <Text style={styles.heroLabel}>Total Balance</Text>
+              <Text style={styles.heroAmount}>{formatVND(summary.balance)}</Text>
+            </View>
+            <Ionicons name="wallet-outline" color="rgba(255,255,255,0.75)" size={34} />
+          </View>
+          <View style={styles.heroStats}>
+            <View>
+              <Text style={styles.heroStatLabel}>Income</Text>
+              <Text style={styles.heroStatValue}>{formatVND(summary.income)}</Text>
+            </View>
+            <View>
+              <Text style={styles.heroStatLabel}>Expenses</Text>
+              <Text style={styles.heroStatValue}>{formatVND(summary.expenses)}</Text>
+            </View>
+          </View>
+        </GradientPanel>
       </Card>
 
-      <View style={styles.metricsContainer}>
-        <Card style={styles.metricCard}>
-          <View style={styles.metricContent}>
-            <View style={styles.metricIcon}>
-              <Ionicons name="arrow-up-circle" color={colors.success} size={24} />
-            </View>
-            <View style={styles.metricText}>
-              <Text style={styles.metricLabel}>Income</Text>
-              <Text style={styles.metricValue}>{dashboardData.income}</Text>
-            </View>
-          </View>
-        </Card>
-
-        <Card style={styles.metricCard}>
-          <View style={styles.metricContent}>
-            <View style={styles.metricIcon}>
-              <Ionicons name="arrow-down-circle" color={colors.error} size={24} />
-            </View>
-            <View style={styles.metricText}>
-              <Text style={styles.metricLabel}>Expenses</Text>
-              <Text style={styles.metricValue}>{dashboardData.expenses}</Text>
-            </View>
-          </View>
-        </Card>
+      <View style={styles.metrics}>
+        <MetricCard label="Remaining" value={formatVND(summary.remainingBudget)} icon="pie-chart-outline" color={colors.teal} />
+        <MetricCard label="Savings Rate" value={`${summary.savingsRate}%`} icon="trending-up-outline" color={colors.success} />
+        <MetricCard label="Health Score" value={`${summary.health}`} icon="shield-checkmark-outline" color={colors.blue} />
+        <MetricCard label="Projected" value={formatVND(summary.projectedBalance)} icon="analytics-outline" color={colors.orange} />
       </View>
 
-      <View style={styles.metricsContainer}>
-        <Card style={styles.metricCard}>
-          <View style={styles.metricContent}>
-            <View style={styles.metricIcon}>
-              <Ionicons name="leaf" color={colors.success} size={24} />
-            </View>
-            <View style={styles.metricText}>
-              <Text style={styles.metricLabel}>Savings</Text>
-              <Text style={styles.metricValue}>{dashboardData.savings}</Text>
-            </View>
-          </View>
-        </Card>
-
-        <Card style={styles.metricCard}>
-          <View style={styles.metricContent}>
-            <View style={styles.metricIcon}>
-              <Ionicons name="checkmark-circle" color={colors.primary} size={24} />
-            </View>
-            <View style={styles.metricText}>
-              <Text style={styles.metricLabel}>Health Score</Text>
-              <Text style={styles.metricValue}>{dashboardData.health_score}</Text>
-            </View>
-          </View>
-        </Card>
-      </View>
-
-      <SectionTitle title="Quick Insights" />
+      <SectionTitle title="Budget Health" />
       <Card>
-        <View style={styles.insightRow}>
-          <Ionicons name="trending-up" color={colors.success} size={22} />
-          <Text style={styles.insightText}>Budget health is excellent. All categories on track.</Text>
+        <View style={styles.healthRow}>
+          <IconBubble name="checkmark-circle-outline" color={colors.success} softColor="#dcfce7" />
+          <View style={styles.healthCopy}>
+            <Text style={styles.cardTitle}>Healthy cash flow score of 100</Text>
+            <Text style={styles.body}>Your spending is below assigned budget, income is stable, and savings goals are moving.</Text>
+          </View>
+        </View>
+        <View style={styles.healthProgress}>
+          <ProgressBar progress={100} color={colors.success} />
         </View>
       </Card>
 
+      <SectionTitle title="Category Activity" />
       <Card>
-        <View style={styles.insightRow}>
-          <Ionicons name="warning" color={colors.warning} size={22} />
-          <Text style={styles.insightText}>Groceries spending +42% vs last month.</Text>
-        </View>
+        {categories.filter((item) => item.type === "expense").slice(0, 5).map((item) => {
+          const ratio = Math.round((item.activity / item.assigned) * 100);
+          return (
+            <View key={item.id} style={styles.categoryRow}>
+              <IconBubble name={item.icon} color={item.color} size={18} />
+              <View style={styles.categoryCopy}>
+                <View style={styles.categoryTop}>
+                  <Text style={styles.categoryName}>{item.name}</Text>
+                  <Text style={styles.categoryValue}>{ratio}%</Text>
+                </View>
+                <ProgressBar progress={ratio} color={item.color} />
+                <Text style={styles.categoryMeta}>{formatVND(item.activity)} of {formatVND(item.assigned)}</Text>
+              </View>
+            </View>
+          );
+        })}
+      </Card>
+
+      <SectionTitle title="Smart Insights" />
+      {insights.map((item) => (
+        <Card key={item.id} style={styles.compactCard}>
+          <View style={styles.insightRow}>
+            <IconBubble
+              name={item.severity === "positive" ? "sparkles-outline" : item.severity === "warning" ? "warning-outline" : "information-circle-outline"}
+              color={item.severity === "positive" ? colors.success : item.severity === "warning" ? colors.orange : colors.blue}
+            />
+            <Text style={styles.insightText}>{item.text}</Text>
+          </View>
+        </Card>
+      ))}
+
+      <SectionTitle title="Recent Transactions" />
+      <Card>
+        {recent.map((item) => (
+          <View key={item.id} style={styles.transactionRow}>
+            <IconBubble name={item.type === "INCOME" ? "arrow-down-circle-outline" : "arrow-up-circle-outline"} color={item.type === "INCOME" ? colors.success : colors.rose} size={18} />
+            <View style={styles.transactionCopy}>
+              <Text style={styles.transactionTitle}>{item.vendor}</Text>
+              <Text style={styles.transactionMeta}>{item.category} • {item.date}</Text>
+            </View>
+            <Text style={[styles.transactionAmount, item.type === "INCOME" ? styles.income : styles.expense]}>
+              {item.type === "INCOME" ? "+" : "-"}{formatVND(item.amount)}
+            </Text>
+          </View>
+        ))}
       </Card>
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  balanceCard: {
-    padding: 0,
-    marginBottom: 16,
-    overflow: "hidden"
-  },
-  balanceGradient: {
-    paddingVertical: 24,
-    paddingHorizontal: 16,
-    borderRadius: 14
-  },
-  balanceLabel: {
-    color: colors.surface,
-    fontSize: 14,
-    fontWeight: "600",
-    opacity: 0.9
-  },
-  balanceAmount: {
-    color: colors.surface,
-    fontSize: 32,
-    fontWeight: "900",
-    marginTop: 8
-  },
-  metricsContainer: {
-    flexDirection: "row",
-    gap: 12,
-    marginBottom: 12
-  },
-  metricCard: {
-    flex: 1
-  },
-  metricContent: {
-    flexDirection: "row",
-    alignItems: "center"
-  },
-  metricIcon: {
-    marginRight: 12
-  },
-  metricText: {
-    flex: 1
-  },
-  metricLabel: {
-    color: colors.muted,
-    fontSize: 12,
-    fontWeight: "600"
-  },
-  metricValue: {
-    color: colors.ink,
-    fontSize: 14,
-    fontWeight: "900",
-    marginTop: 4
-  },
-  insightRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12
-  },
-  insightText: {
-    color: colors.text,
-    fontSize: 14,
-    fontWeight: "500",
-    flex: 1,
-    lineHeight: 20
-  }
+  heroCard: { padding: 0, overflow: "hidden" },
+  heroTop: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" },
+  heroLabel: { color: "rgba(255,255,255,0.78)", fontWeight: "800", textTransform: "uppercase", fontSize: 11, letterSpacing: 1.5 },
+  heroAmount: { color: colors.surface, fontSize: 31, fontWeight: "900", marginTop: 8 },
+  heroStats: { marginTop: 18, paddingTop: 14, borderTopWidth: 1, borderColor: "rgba(255,255,255,0.25)", flexDirection: "row", justifyContent: "space-between" },
+  heroStatLabel: { color: "rgba(255,255,255,0.7)", fontSize: 12, fontWeight: "800" },
+  heroStatValue: { color: colors.surface, fontWeight: "900", marginTop: 4 },
+  metrics: { marginHorizontal: 16, marginTop: 14, flexDirection: "row", flexWrap: "wrap", gap: 10 },
+  healthRow: { flexDirection: "row" },
+  healthCopy: { flex: 1, marginLeft: 12 },
+  healthProgress: { marginTop: 14 },
+  cardTitle: { color: colors.ink, fontSize: 17, fontWeight: "900" },
+  body: { color: colors.text, lineHeight: 21, marginTop: 5 },
+  categoryRow: { flexDirection: "row", paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: colors.border },
+  categoryCopy: { flex: 1, marginLeft: 12 },
+  categoryTop: { flexDirection: "row", justifyContent: "space-between", marginBottom: 8 },
+  categoryName: { color: colors.ink, fontWeight: "900" },
+  categoryValue: { color: colors.muted, fontWeight: "900" },
+  categoryMeta: { color: colors.muted, fontSize: 12, marginTop: 6, fontWeight: "700" },
+  compactCard: { paddingVertical: 13 },
+  insightRow: { flexDirection: "row", alignItems: "center" },
+  insightText: { flex: 1, color: colors.text, lineHeight: 20, marginLeft: 12, fontWeight: "700" },
+  transactionRow: { flexDirection: "row", alignItems: "center", paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: colors.border },
+  transactionCopy: { flex: 1, marginLeft: 12 },
+  transactionTitle: { color: colors.ink, fontWeight: "900" },
+  transactionMeta: { color: colors.muted, marginTop: 3, fontSize: 12, fontWeight: "700" },
+  transactionAmount: { maxWidth: 110, textAlign: "right", fontWeight: "900", fontSize: 12 },
+  income: { color: colors.success },
+  expense: { color: colors.rose }
 });

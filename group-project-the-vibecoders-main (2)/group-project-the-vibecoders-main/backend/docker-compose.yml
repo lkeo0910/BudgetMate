@@ -1,0 +1,31 @@
+services:
+  db:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: budgetmate
+    ports:
+      - "5432:5432"
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+  mongodb:
+    # Use the Atlas Local image to enable $vectorSearch
+    image: mongodb/mongodb-atlas-local:latest
+    container_name: budgetmate-mongodb
+    environment:
+      - MONGODB_INITDB_ROOT_USERNAME=admin
+      - MONGODB_INITDB_ROOT_PASSWORD=password
+    ports:
+      - "27018:27017"
+    volumes:
+      - mongodb_data:/data/db
+      - mongodb_search_indexes:/data/mongot # Necessary for vector index persistence
+
+volumes:
+  mongodb_data:
+  mongodb_search_indexes: # New volume for search metadata

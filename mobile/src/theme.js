@@ -1,22 +1,26 @@
 export const colors = {
   background: "#f8fafc",
   surface: "#ffffff",
-  primary: "#2563eb",
-  primaryDark: "#1e40af",
+  primary: "#0f766e",
+  primaryDark: "#115e59",
   teal: "#14b8a6",
   orange: "#f97316",
   violet: "#8b5cf6",
+  blue: "#2563eb",
+  sky: "#0284c7",
+  rose: "#e11d48",
+  amber: "#d97706",
   ink: "#111827",
   text: "#334155",
   muted: "#64748b",
-  soft: "#e0f2fe",
+  soft: "#ecfeff",
   border: "#e2e8f0",
   danger: "#dc2626",
   success: "#059669"
 };
 
 export const spacing = {
-  page: 20,
+  page: 16,
   card: 16,
   radius: 18
 };

@@ -1,196 +1,71 @@
-import React, { useState } from "react";
-import { StyleSheet, Text, View, FlatList, TouchableOpacity } from "react-native";
-import { Ionicons } from "@expo/vector-icons";
+import React from "react";
+import { StyleSheet, Text, View } from "react-native";
 import { Card, SectionTitle } from "../components/Card";
-import { LoadingState } from "../components/LoadingState";
-import { Notice, Screen } from "../components/Layout";
-import { useResource } from "../hooks/useResource";
+import { IconBubble, ProgressBar, PrimaryButton } from "../components/FinanceUI";
+import { Screen } from "../components/Layout";
+import { categories, formatVND, summary } from "../data/finance";
 import { colors } from "../theme";
 
 export default function BudgetScreen() {
-  const { data: budgets, loading, error, fromFallback, reload } = useResource("/budgets");
-  const [expandedId, setExpandedId] = useState(null);
-
-  if (loading && !budgets) return <LoadingState />;
-
-  const budgetList = budgets || [
-    { id: 1, name: "Groceries", limit: "3.000.000 ₫", spent: "2.100.000 ₫", percentage: 70, icon: "basket" },
-    { id: 2, name: "Utilities", limit: "1.500.000 ₫", spent: "980.000 ₫", percentage: 65, icon: "flash" },
-    { id: 3, name: "Dining", limit: "2.000.000 ₫", spent: "1.850.000 ₫", percentage: 92, icon: "restaurant" },
-    { id: 4, name: "Transport", limit: "2.500.000 ₫", spent: "1.200.000 ₫", percentage: 48, icon: "car" },
-    { id: 5, name: "Entertainment", limit: "1.000.000 ₫", spent: "400.000 ₫", percentage: 40, icon: "film" }
-  ];
-
-  const getProgressColor = (percentage) => {
-    if (percentage >= 90) return colors.error;
-    if (percentage >= 75) return colors.warning;
-    return colors.success;
-  };
-
-  const renderBudget = ({ item }) => (
-    <TouchableOpacity
-      onPress={() => setExpandedId(expandedId === item.id ? null : item.id)}
-      activeOpacity={0.7}
-    >
-      <Card style={styles.budgetCard}>
-        <View style={styles.budgetHeader}>
-          <View style={styles.budgetTitle}>
-            <View style={styles.budgetIcon}>
-              <Ionicons name={item.icon} color={colors.primary} size={18} />
-            </View>
-            <View>
-              <Text style={styles.budgetName}>{item.name}</Text>
-              <Text style={styles.budgetLimit}>Limit: {item.limit}</Text>
-            </View>
-          </View>
-          <Text style={styles.budgetSpent}>{item.spent}</Text>
-        </View>
-
-        <View style={styles.progressContainer}>
-          <View style={styles.progressBar}>
-            <View
-              style={[
-                styles.progressFill,
-                {
-                  width: `${item.percentage}%`,
-                  backgroundColor: getProgressColor(item.percentage)
-                }
-              ]}
-            />
-          </View>
-          <Text style={styles.progressText}>{item.percentage}% spent</Text>
-        </View>
-
-        {expandedId === item.id && (
-          <View style={styles.expandedContent}>
-            <View style={styles.expandedRow}>
-              <Text style={styles.expandedLabel}>Remaining</Text>
-              <Text style={styles.expandedValue}>
-                {Math.max(0, item.limit.replace(/[^0-9]/g, "") - item.spent.replace(/[^0-9]/g, ""))} ₫
-              </Text>
-            </View>
-          </View>
-        )}
-      </Card>
-    </TouchableOpacity>
-  );
+  const expenseRows = categories.filter((item) => item.type === "expense");
+  const incomeRows = categories.filter((item) => item.type === "income");
 
   return (
-    <Screen
-      eyebrow="BudgetMate"
-      title="Budgets"
-      subtitle="Manage your spending limits"
-      refreshing={loading}
-      onRefresh={reload}
-    >
-      <Notice text={fromFallback ? `Using demo data because API unavailable: ${error}` : null} />
+    <Screen eyebrow="Budget" title="Monthly Plan" subtitle="A mobile version of the web budget planner with assigned, activity, and available amounts.">
+      <Card>
+        <View style={styles.availableTop}>
+          <View>
+            <Text style={styles.overline}>Available to assign</Text>
+            <Text style={styles.available}>{formatVND(summary.remainingBudget)}</Text>
+          </View>
+          <IconBubble name="wallet-outline" color={colors.primary} softColor="#ccfbf1" />
+        </View>
+        <View style={styles.actions}>
+          <PrimaryButton label="Assign funds" icon="add" />
+          <PrimaryButton label="Previous month" icon="chevron-back" variant="outline" />
+        </View>
+      </Card>
 
-      <TouchableOpacity style={styles.addButton}>
-        <Ionicons name="add-circle" color={colors.surface} size={20} />
-        <Text style={styles.addButtonText}>Add New Budget</Text>
-      </TouchableOpacity>
+      <SectionTitle title="Expense Categories" />
+      <Card>
+        {expenseRows.map((item) => <BudgetRow key={item.id} item={item} />)}
+      </Card>
 
-      <FlatList
-        data={budgetList}
-        renderItem={renderBudget}
-        keyExtractor={(item) => item.id.toString()}
-        scrollEnabled={false}
-        nestedScrollEnabled={false}
-      />
+      <SectionTitle title="Income Categories" />
+      <Card>
+        {incomeRows.map((item) => <BudgetRow key={item.id} item={item} income />)}
+      </Card>
     </Screen>
   );
 }
 
+function BudgetRow({ item, income }) {
+  const percent = item.assigned ? Math.round((item.activity / item.assigned) * 100) : 0;
+  return (
+    <View style={styles.row}>
+      <IconBubble name={item.icon} color={item.color} size={18} />
+      <View style={styles.copy}>
+        <View style={styles.rowTop}>
+          <Text style={styles.name}>{item.name}</Text>
+          <Text style={[styles.availableSmall, income && styles.income]}>{formatVND(item.assigned - item.activity)}</Text>
+        </View>
+        <ProgressBar progress={percent} color={item.color} />
+        <Text style={styles.meta}>{formatVND(item.activity)} activity • {formatVND(item.assigned)} assigned</Text>
+      </View>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
-  addButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: colors.primary,
-    paddingVertical: 12,
-    borderRadius: 12,
-    marginBottom: 16,
-    gap: 8
-  },
-  addButtonText: {
-    color: colors.surface,
-    fontWeight: "700",
-    fontSize: 14
-  },
-  budgetCard: {
-    marginBottom: 12
-  },
-  budgetHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 12
-  },
-  budgetTitle: {
-    flexDirection: "row",
-    alignItems: "center",
-    flex: 1
-  },
-  budgetIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
-    backgroundColor: colors.primary + "15",
-    alignItems: "center",
-    justifyContent: "center",
-    marginRight: 10
-  },
-  budgetName: {
-    color: colors.ink,
-    fontSize: 15,
-    fontWeight: "700"
-  },
-  budgetLimit: {
-    color: colors.muted,
-    fontSize: 12,
-    marginTop: 2
-  },
-  budgetSpent: {
-    color: colors.ink,
-    fontSize: 14,
-    fontWeight: "900"
-  },
-  progressContainer: {
-    gap: 6
-  },
-  progressBar: {
-    height: 6,
-    backgroundColor: colors.border,
-    borderRadius: 3,
-    overflow: "hidden"
-  },
-  progressFill: {
-    height: "100%",
-    borderRadius: 3
-  },
-  progressText: {
-    color: colors.muted,
-    fontSize: 12,
-    fontWeight: "600"
-  },
-  expandedContent: {
-    marginTop: 12,
-    paddingTop: 12,
-    borderTopWidth: 1,
-    borderTopColor: colors.border
-  },
-  expandedRow: {
-    flexDirection: "row",
-    justifyContent: "space-between"
-  },
-  expandedLabel: {
-    color: colors.muted,
-    fontSize: 13,
-    fontWeight: "600"
-  },
-  expandedValue: {
-    color: colors.success,
-    fontSize: 13,
-    fontWeight: "700"
-  }
+  availableTop: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+  overline: { color: colors.muted, fontSize: 11, fontWeight: "900", textTransform: "uppercase", letterSpacing: 1.5 },
+  available: { color: colors.primary, fontSize: 28, fontWeight: "900", marginTop: 6 },
+  actions: { gap: 10, marginTop: 16 },
+  row: { flexDirection: "row", paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: colors.border },
+  copy: { flex: 1, marginLeft: 12 },
+  rowTop: { flexDirection: "row", justifyContent: "space-between", marginBottom: 8 },
+  name: { color: colors.ink, fontWeight: "900" },
+  availableSmall: { color: colors.rose, fontWeight: "900", fontSize: 12 },
+  income: { color: colors.success },
+  meta: { color: colors.muted, marginTop: 6, fontSize: 12, fontWeight: "700" }
 });

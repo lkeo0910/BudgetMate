@@ -41,7 +41,7 @@ export function EmptyState({ title, message }) {
 const styles = StyleSheet.create({
   card: {
     marginHorizontal: spacing.page,
-    marginTop: 16,
+    marginTop: 14,
     padding: spacing.card,
     borderRadius: spacing.radius,
     backgroundColor: colors.surface,

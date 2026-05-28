@@ -3,7 +3,7 @@ import { RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native
 import { LinearGradient } from "expo-linear-gradient";
 import { colors, spacing } from "../theme";
 
-export function Screen({ eyebrow, title, subtitle, children, refreshing, onRefresh }) {
+export function Screen({ eyebrow, title, subtitle, children, refreshing, onRefresh, right }) {
   return (
     <ScrollView
       style={styles.container}
@@ -12,9 +12,17 @@ export function Screen({ eyebrow, title, subtitle, children, refreshing, onRefre
         onRefresh ? <RefreshControl refreshing={!!refreshing} onRefresh={onRefresh} tintColor={colors.primary} /> : undefined
       }
     >
-      <LinearGradient colors={["#eff6ff", "#f8fafc"]} style={styles.header}>
-        {!!eyebrow && <Text style={styles.eyebrow}>{eyebrow}</Text>}
-        <Text style={styles.title}>{title}</Text>
+      <LinearGradient colors={["#ffffff", "#f0fdfa"]} style={styles.header}>
+        <View style={styles.topRow}>
+          <View style={styles.brandMark}>
+            <Text style={styles.brandText}>BM</Text>
+          </View>
+          <View style={styles.headerCopy}>
+            {!!eyebrow && <Text style={styles.eyebrow}>{eyebrow}</Text>}
+            <Text style={styles.title}>{title}</Text>
+          </View>
+          {right}
+        </View>
         {!!subtitle && <Text style={styles.subtitle}>{subtitle}</Text>}
       </LinearGradient>
       {children}
@@ -40,29 +48,53 @@ const styles = StyleSheet.create({
     paddingBottom: 28
   },
   header: {
-    paddingTop: 58,
+    paddingTop: 54,
     paddingHorizontal: spacing.page,
-    paddingBottom: 24,
-    borderBottomLeftRadius: 26,
-    borderBottomRightRadius: 26
+    paddingBottom: 18,
+    borderBottomLeftRadius: 24,
+    borderBottomRightRadius: 24,
+    borderBottomWidth: 1,
+    borderColor: colors.border
+  },
+  topRow: {
+    flexDirection: "row",
+    alignItems: "center"
+  },
+  brandMark: {
+    width: 42,
+    height: 42,
+    borderRadius: 14,
+    backgroundColor: colors.primary,
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 12
+  },
+  brandText: {
+    color: colors.surface,
+    fontWeight: "900",
+    fontSize: 13
+  },
+  headerCopy: {
+    flex: 1
   },
   eyebrow: {
     color: colors.primary,
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: "800",
     textTransform: "uppercase",
-    marginBottom: 8
+    letterSpacing: 1.2,
+    marginBottom: 3
   },
   title: {
     color: colors.ink,
-    fontSize: 30,
+    fontSize: 25,
     fontWeight: "900"
   },
   subtitle: {
     color: colors.muted,
     fontSize: 15,
     lineHeight: 22,
-    marginTop: 8
+    marginTop: 12
   },
   notice: {
     marginHorizontal: spacing.page,
