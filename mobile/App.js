@@ -1,9 +1,9 @@
-import React from "react";
+import React, { useState } from "react";
 import { NavigationContainer } from "@react-navigation/native";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { StatusBar } from "expo-status-bar";
 import { Ionicons } from "@expo/vector-icons";
-import LandingScreen from "./src/screens/LandingScreen";
+import AuthScreen from "./src/screens/AuthScreen";
 import DashboardScreen from "./src/screens/DashboardScreen";
 import BudgetScreen from "./src/screens/BudgetScreen";
 import TransactionsScreen from "./src/screens/TransactionsScreen";
@@ -14,7 +14,6 @@ import { colors } from "./src/theme";
 const Tab = createBottomTabNavigator();
 
 const iconMap = {
-  Home: ["home", "home-outline"],
   Dashboard: ["bar-chart", "bar-chart-outline"],
   Budget: ["wallet", "wallet-outline"],
   Transactions: ["receipt", "receipt-outline"],
@@ -22,7 +21,7 @@ const iconMap = {
   More: ["grid", "grid-outline"]
 };
 
-export default function App() {
+function AppTabs() {
   return (
     <NavigationContainer>
       <StatusBar style="dark" />
@@ -51,7 +50,6 @@ export default function App() {
           }
         })}
       >
-        <Tab.Screen name="Home" component={LandingScreen} />
         <Tab.Screen name="Dashboard" component={DashboardScreen} />
         <Tab.Screen name="Budget" component={BudgetScreen} />
         <Tab.Screen name="Transactions" component={TransactionsScreen} />
@@ -60,4 +58,19 @@ export default function App() {
       </Tab.Navigator>
     </NavigationContainer>
   );
+}
+
+export default function App() {
+  const [user, setUser] = useState(null);
+
+  if (!user) {
+    return (
+      <>
+        <StatusBar style="dark" />
+        <AuthScreen onAuthenticated={setUser} />
+      </>
+    );
+  }
+
+  return <AppTabs />;
 }
