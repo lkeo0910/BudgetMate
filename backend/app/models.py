@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date as date_type, datetime
 from pydantic import BaseModel, EmailStr, Field
 
 
@@ -31,6 +31,38 @@ class TokenResponse(BaseModel):
     access_token: str
     token_type: str
     user: UserResponse
+
+
+class CategoryCreate(BaseModel):
+    category_name: str = Field(..., min_length=1, max_length=120)
+    category_type: str = Field(..., pattern="^(income|expense)$")
+    category_icon: str | None = Field(None, max_length=80)
+    monthly_limit: float | None = Field(None, ge=0)
+
+
+class CategoryUpdate(BaseModel):
+    category_name: str | None = Field(None, min_length=1, max_length=120)
+    category_type: str | None = Field(None, pattern="^(income|expense)$")
+    category_icon: str | None = Field(None, max_length=80)
+    monthly_limit: float | None = Field(None, ge=0)
+
+
+class TransactionCreate(BaseModel):
+    vendor: str = Field(..., min_length=1, max_length=255)
+    category_id: int
+    amount: float = Field(..., gt=0)
+    date: date_type
+    type: str = Field(..., pattern="^(INCOME|EXPENSE)$")
+    notes: str | None = None
+
+
+class TransactionUpdate(BaseModel):
+    vendor: str | None = Field(None, min_length=1, max_length=255)
+    category_id: int | None = None
+    amount: float | None = Field(None, gt=0)
+    date: date_type | None = None
+    type: str | None = Field(None, pattern="^(INCOME|EXPENSE)$")
+    notes: str | None = None
 
 
 class ChatMessage(BaseModel):

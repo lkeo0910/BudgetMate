@@ -7,6 +7,7 @@ import AuthScreen from "./src/screens/AuthScreen";
 import DashboardScreen from "./src/screens/DashboardScreen";
 import BudgetScreen from "./src/screens/BudgetScreen";
 import TransactionsScreen from "./src/screens/TransactionsScreen";
+import CategoriesScreen from "./src/screens/CategoriesScreen";
 import ReportsScreen from "./src/screens/ReportsScreen";
 import MoreScreen from "./src/screens/MoreScreen";
 import { AuthProvider } from "./src/context/AuthContext";
@@ -18,6 +19,7 @@ const iconMap = {
   Dashboard: ["bar-chart", "bar-chart-outline"],
   Budget: ["wallet", "wallet-outline"],
   Transactions: ["receipt", "receipt-outline"],
+  Categories: ["pricetags", "pricetags-outline"],
   Reports: ["analytics", "analytics-outline"],
   More: ["grid", "grid-outline"]
 };
@@ -54,6 +56,7 @@ function AppTabs() {
         <Tab.Screen name="Dashboard" component={DashboardScreen} />
         <Tab.Screen name="Budget" component={BudgetScreen} />
         <Tab.Screen name="Transactions" component={TransactionsScreen} />
+        <Tab.Screen name="Categories" component={CategoriesScreen} />
         <Tab.Screen name="Reports" component={ReportsScreen} />
         <Tab.Screen name="More" component={MoreScreen} />
       </Tab.Navigator>
@@ -74,7 +77,7 @@ export default function App() {
   }
 
   return (
-    <AuthProvider value={user}>
+    <AuthProvider value={{ ...user, logout: () => setUser(null) }}>
       <AppTabs />
     </AuthProvider>
   );

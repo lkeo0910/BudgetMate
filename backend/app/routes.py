@@ -1,10 +1,15 @@
 from fastapi import APIRouter, HTTPException, Header, status
-from app.models import UserCreate, UserLogin, TokenResponse, UserResponse
+from app.models import CategoryCreate, CategoryUpdate, TransactionCreate, TransactionUpdate, UserCreate, UserLogin, TokenResponse, UserResponse
 from app.auth import hash_password, verify_password, create_access_token, decode_token
 from app.database import get_db
+from app.seed_data import ensure_default_categories
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 finance_router = APIRouter(tags=["finance"])
+
+
+TRANSACTION_COLUMNS = "id, user_id, vendor, category_id, amount, date, type, notes, created_at, updated_at"
+CATEGORY_COLUMNS = "id, user_id, category_name, monthly_limit, category_type, category_icon, created_at, updated_at"
 
 
 async def require_current_user_id(authorization: str | None) -> int:
@@ -32,6 +37,46 @@ async def require_current_user_id(authorization: str | None) -> int:
         )
 
     return int(payload.get("sub"))
+
+
+async def ensure_user_category(db, user_id: int, category_id: int):
+    category = await db.fetchrow(
+        "SELECT id FROM categories WHERE id = $1 AND user_id = $2",
+        category_id,
+        user_id,
+    )
+    if not category:
+        raise HTTPException(status_code=400, detail="Category does not belong to this user")
+
+
+async def get_user_category(db, user_id: int, category_id: int):
+    category = await db.fetchrow(
+        f"""
+        SELECT {CATEGORY_COLUMNS}
+        FROM categories
+        WHERE id = $1 AND user_id = $2
+        """,
+        category_id,
+        user_id,
+    )
+    if not category:
+        raise HTTPException(status_code=404, detail="Category not found")
+    return dict(category)
+
+
+async def get_user_transaction(db, user_id: int, transaction_id: int):
+    transaction = await db.fetchrow(
+        f"""
+        SELECT {TRANSACTION_COLUMNS}
+        FROM transactions
+        WHERE id = $1 AND user_id = $2
+        """,
+        transaction_id,
+        user_id,
+    )
+    if not transaction:
+        raise HTTPException(status_code=404, detail="Transaction not found")
+    return dict(transaction)
 
 
 @router.post("/register", response_model=TokenResponse, status_code=201)
@@ -69,6 +114,7 @@ async def register(user_data: UserCreate):
             hashed_password,
         )
         user_id = inserted["id"]
+        await ensure_default_categories(db, user_id)
         
         access_token = create_access_token(user_id, user_data.username)
         return TokenResponse(
@@ -123,6 +169,8 @@ async def login(credentials: UserLogin):
                 status_code=401,
                 detail="Invalid username or password"
             )
+
+        await ensure_default_categories(db, user_id)
         
         access_token = create_access_token(user_id, username)
         return TokenResponse(
@@ -188,6 +236,7 @@ async def get_categories(authorization: str = Header(None)):
     if not db:
         raise HTTPException(status_code=503, detail="Database service unavailable. Check server logs.")
 
+    await ensure_default_categories(db, user_id)
     rows = await db.fetch(
         """
         SELECT id, user_id, category_name, monthly_limit, category_type, category_icon, created_at, updated_at
@@ -198,6 +247,114 @@ async def get_categories(authorization: str = Header(None)):
         user_id,
     )
     return [dict(row) for row in rows]
+
+
+@finance_router.post("/categories", status_code=status.HTTP_201_CREATED)
+async def create_category(category: CategoryCreate, authorization: str = Header(None)):
+    user_id = await require_current_user_id(authorization)
+    db = get_db()
+    if not db:
+        raise HTTPException(status_code=503, detail="Database service unavailable. Check server logs.")
+
+    try:
+        row = await db.fetchrow(
+            f"""
+            INSERT INTO categories (user_id, category_name, monthly_limit, category_type, category_icon)
+            VALUES ($1, $2, $3, $4, $5)
+            RETURNING {CATEGORY_COLUMNS}
+            """,
+            user_id,
+            category.category_name,
+            category.monthly_limit,
+            category.category_type,
+            category.category_icon,
+        )
+        return dict(row)
+    except Exception as exc:
+        if "UNIQUE" in str(exc).upper() or "unique" in str(exc):
+            raise HTTPException(status_code=400, detail="Category name already exists")
+        raise
+
+
+@finance_router.get("/categories/{category_id}")
+async def get_category(category_id: int, authorization: str = Header(None)):
+    user_id = await require_current_user_id(authorization)
+    db = get_db()
+    if not db:
+        raise HTTPException(status_code=503, detail="Database service unavailable. Check server logs.")
+
+    return await get_user_category(db, user_id, category_id)
+
+
+@finance_router.patch("/categories/{category_id}")
+async def update_category(category_id: int, category: CategoryUpdate, authorization: str = Header(None)):
+    user_id = await require_current_user_id(authorization)
+    db = get_db()
+    if not db:
+        raise HTTPException(status_code=503, detail="Database service unavailable. Check server logs.")
+
+    await get_user_category(db, user_id, category_id)
+    updates = category.model_dump(exclude_unset=True)
+    if not updates:
+        raise HTTPException(status_code=400, detail="No category fields provided")
+
+    set_parts = []
+    values = []
+    for index, (field, value) in enumerate(updates.items(), start=1):
+        set_parts.append(f"{field} = ${index}")
+        values.append(value)
+
+    values.extend([category_id, user_id])
+    category_id_param = len(values) - 1
+    user_id_param = len(values)
+    try:
+        row = await db.fetchrow(
+            f"""
+            UPDATE categories
+            SET {", ".join(set_parts)}, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ${category_id_param} AND user_id = ${user_id_param}
+            RETURNING {CATEGORY_COLUMNS}
+            """,
+            *values,
+        )
+        return dict(row)
+    except Exception as exc:
+        if "UNIQUE" in str(exc).upper() or "unique" in str(exc):
+            raise HTTPException(status_code=400, detail="Category name already exists")
+        raise
+
+
+@finance_router.delete("/categories/{category_id}")
+async def delete_category(category_id: int, authorization: str = Header(None)):
+    user_id = await require_current_user_id(authorization)
+    db = get_db()
+    if not db:
+        raise HTTPException(status_code=503, detail="Database service unavailable. Check server logs.")
+
+    existing = await get_user_category(db, user_id, category_id)
+    row = await db.fetchrow(
+        """
+        DELETE FROM categories
+        WHERE id = $1 AND user_id = $2
+        RETURNING id
+        """,
+        category_id,
+        user_id,
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Category not found")
+    try:
+        await db.execute(
+            """
+            INSERT INTO hidden_default_categories (user_id, category_name)
+            VALUES ($1, $2)
+            """,
+            user_id,
+            existing["category_name"],
+        )
+    except Exception:
+        pass
+    return {"deleted": True, "id": row["id"]}
 
 
 @finance_router.get("/transactions")
@@ -217,3 +374,96 @@ async def get_transactions(authorization: str = Header(None)):
         user_id,
     )
     return [dict(row) for row in rows]
+
+
+@finance_router.post("/transactions", status_code=status.HTTP_201_CREATED)
+async def create_transaction(transaction: TransactionCreate, authorization: str = Header(None)):
+    user_id = await require_current_user_id(authorization)
+    db = get_db()
+    if not db:
+        raise HTTPException(status_code=503, detail="Database service unavailable. Check server logs.")
+
+    await ensure_user_category(db, user_id, transaction.category_id)
+    row = await db.fetchrow(
+        f"""
+        INSERT INTO transactions (user_id, vendor, category_id, amount, date, type, notes)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
+        RETURNING {TRANSACTION_COLUMNS}
+        """,
+        user_id,
+        transaction.vendor,
+        transaction.category_id,
+        transaction.amount,
+        transaction.date.isoformat(),
+        transaction.type,
+        transaction.notes,
+    )
+    return dict(row)
+
+
+@finance_router.get("/transactions/{transaction_id}")
+async def get_transaction(transaction_id: int, authorization: str = Header(None)):
+    user_id = await require_current_user_id(authorization)
+    db = get_db()
+    if not db:
+        raise HTTPException(status_code=503, detail="Database service unavailable. Check server logs.")
+
+    return await get_user_transaction(db, user_id, transaction_id)
+
+
+@finance_router.patch("/transactions/{transaction_id}")
+async def update_transaction(transaction_id: int, transaction: TransactionUpdate, authorization: str = Header(None)):
+    user_id = await require_current_user_id(authorization)
+    db = get_db()
+    if not db:
+        raise HTTPException(status_code=503, detail="Database service unavailable. Check server logs.")
+
+    await get_user_transaction(db, user_id, transaction_id)
+    updates = transaction.model_dump(exclude_unset=True)
+    if not updates:
+        raise HTTPException(status_code=400, detail="No transaction fields provided")
+    if "category_id" in updates:
+        await ensure_user_category(db, user_id, updates["category_id"])
+    if "date" in updates and updates["date"] is not None:
+        updates["date"] = updates["date"].isoformat()
+
+    set_parts = []
+    values = []
+    for index, (field, value) in enumerate(updates.items(), start=1):
+        set_parts.append(f"{field} = ${index}")
+        values.append(value)
+
+    values.extend([transaction_id, user_id])
+    transaction_id_param = len(values) - 1
+    user_id_param = len(values)
+    row = await db.fetchrow(
+        f"""
+        UPDATE transactions
+        SET {", ".join(set_parts)}, updated_at = CURRENT_TIMESTAMP
+        WHERE id = ${transaction_id_param} AND user_id = ${user_id_param}
+        RETURNING {TRANSACTION_COLUMNS}
+        """,
+        *values,
+    )
+    return dict(row)
+
+
+@finance_router.delete("/transactions/{transaction_id}")
+async def delete_transaction(transaction_id: int, authorization: str = Header(None)):
+    user_id = await require_current_user_id(authorization)
+    db = get_db()
+    if not db:
+        raise HTTPException(status_code=503, detail="Database service unavailable. Check server logs.")
+
+    row = await db.fetchrow(
+        """
+        DELETE FROM transactions
+        WHERE id = $1 AND user_id = $2
+        RETURNING id
+        """,
+        transaction_id,
+        user_id,
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Transaction not found")
+    return {"deleted": True, "id": row["id"]}

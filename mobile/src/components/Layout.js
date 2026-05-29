@@ -1,9 +1,10 @@
 import React from "react";
 import { RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
+import ProfileMenu from "./ProfileMenu";
 import { colors, spacing } from "../theme";
 
-export function Screen({ eyebrow, title, subtitle, children, refreshing, onRefresh, right }) {
+export function Screen({ eyebrow, title, children, refreshing, onRefresh, right }) {
   return (
     <ScrollView
       style={styles.container}
@@ -21,9 +22,8 @@ export function Screen({ eyebrow, title, subtitle, children, refreshing, onRefre
             {!!eyebrow && <Text style={styles.eyebrow}>{eyebrow}</Text>}
             <Text style={styles.title}>{title}</Text>
           </View>
-          {right}
+          {right || <ProfileMenu />}
         </View>
-        {!!subtitle && <Text style={styles.subtitle}>{subtitle}</Text>}
       </LinearGradient>
       {children}
     </ScrollView>

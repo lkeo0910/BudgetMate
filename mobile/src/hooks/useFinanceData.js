@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useFocusEffect } from "@react-navigation/native";
 import { api } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 
@@ -14,6 +15,20 @@ const icons = {
   Goals: "flag-outline",
   Salary: "cash-outline",
   Freelance: "briefcase-outline"
+};
+
+const legacyIcons = {
+  "shopping-cart": "cart-outline",
+  house: "home-outline",
+  car: "car-outline",
+  receipt: "receipt-outline",
+  film: "film-outline",
+  "shopping-bag": "bag-outline",
+  "heart-pulse": "heart-outline",
+  "piggy-bank": "flag-outline",
+  "banknote-arrow-up": "cash-outline",
+  briefcase: "briefcase-outline",
+  wallet: "wallet-outline"
 };
 
 const emptySummary = {
@@ -44,7 +59,7 @@ function buildFinanceData(categoryRows, transactionRows) {
       id: String(item.id),
       name,
       type: item.category_type || "expense",
-      icon: icons[name] || "pricetag-outline",
+      icon: legacyIcons[item.category_icon] || item.category_icon || icons[name] || "pricetag-outline",
       assigned: toNumber(item.monthly_limit),
       activity: 0,
       color: colors[index % colors.length]
@@ -60,6 +75,7 @@ function buildFinanceData(categoryRows, transactionRows) {
     }
     return {
       id: String(item.id),
+      categoryId: item.category_id,
       date: item.date,
       vendor: item.vendor,
       note: item.notes || "",
@@ -135,6 +151,12 @@ export function useFinanceData() {
   useEffect(() => {
     load();
   }, [load]);
+
+  useFocusEffect(
+    useCallback(() => {
+      load();
+    }, [load])
+  );
 
   const data = useMemo(
     () => buildFinanceData(state.categoryRows, state.transactionRows),

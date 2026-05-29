@@ -53,3 +53,37 @@ export async function registerUser(payload) {
   const response = await api.post("/auth/register", payload);
   return response.data;
 }
+
+function authHeaders(token) {
+  return { Authorization: `Bearer ${token}` };
+}
+
+export async function createTransaction(token, payload) {
+  const response = await api.post("/transactions", payload, { headers: authHeaders(token) });
+  return response.data;
+}
+
+export async function updateTransaction(token, transactionId, payload) {
+  const response = await api.patch(`/transactions/${transactionId}`, payload, { headers: authHeaders(token) });
+  return response.data;
+}
+
+export async function deleteTransaction(token, transactionId) {
+  const response = await api.delete(`/transactions/${transactionId}`, { headers: authHeaders(token) });
+  return response.data;
+}
+
+export async function createCategory(token, payload) {
+  const response = await api.post("/categories", payload, { headers: authHeaders(token) });
+  return response.data;
+}
+
+export async function updateCategory(token, categoryId, payload) {
+  const response = await api.patch(`/categories/${categoryId}`, payload, { headers: authHeaders(token) });
+  return response.data;
+}
+
+export async function deleteCategory(token, categoryId) {
+  const response = await api.delete(`/categories/${categoryId}`, { headers: authHeaders(token) });
+  return response.data;
+}

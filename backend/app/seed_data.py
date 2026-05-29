@@ -5,17 +5,18 @@ from app.auth import hash_password
 
 
 DEFAULT_CATEGORIES = [
-    {"name": "Groceries", "type": "expense", "icon": "shopping-cart"},
-    {"name": "Rent", "type": "expense", "icon": "house"},
-    {"name": "Transport", "type": "expense", "icon": "car"},
-    {"name": "Utilities", "type": "expense", "icon": "receipt"},
-    {"name": "Entertainment", "type": "expense", "icon": "film"},
-    {"name": "Shopping", "type": "expense", "icon": "shopping-bag"},
-    {"name": "Healthcare", "type": "expense", "icon": "heart-pulse"},
-    {"name": "Goals", "type": "expense", "icon": "piggy-bank"},
-    {"name": "Salary", "type": "income", "icon": "banknote-arrow-up"},
-    {"name": "Freelance", "type": "income", "icon": "briefcase"},
-    {"name": "Other Income", "type": "income", "icon": "wallet"},
+    {"name": "Groceries", "type": "expense", "icon": "cart-outline"},
+    {"name": "Rent", "type": "expense", "icon": "home-outline"},
+    {"name": "Transport", "type": "expense", "icon": "car-outline"},
+    {"name": "Utilities", "type": "expense", "icon": "receipt-outline"},
+    {"name": "Entertainment", "type": "expense", "icon": "film-outline"},
+    {"name": "Fitness", "type": "expense", "icon": "heart-outline"},
+    {"name": "Shopping", "type": "expense", "icon": "bag-outline"},
+    {"name": "Healthcare", "type": "expense", "icon": "heart-outline"},
+    {"name": "Goals", "type": "expense", "icon": "flag-outline"},
+    {"name": "Salary", "type": "income", "icon": "cash-outline"},
+    {"name": "Freelance", "type": "income", "icon": "briefcase-outline"},
+    {"name": "Other Income", "type": "income", "icon": "wallet-outline"},
 ]
 
 SEED_FILE = Path(__file__).resolve().parents[1] / "seed" / "seed_data.json"
@@ -49,6 +50,15 @@ async def init_finance_schema(db):
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
+    await db.execute("""
+        CREATE TABLE IF NOT EXISTS hidden_default_categories (
+            id SERIAL PRIMARY KEY,
+            user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            category_name VARCHAR(120) NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(user_id, category_name)
+        )
+    """)
 
 
 async def ensure_seed_user(db, username="test_user", password="password123"):
@@ -72,11 +82,15 @@ async def ensure_seed_user(db, username="test_user", password="password123"):
 
 
 async def ensure_default_categories(db, user_id):
-    existing_count = await db.fetchrow("SELECT COUNT(*) AS count FROM categories WHERE user_id = $1", user_id)
-    if existing_count and existing_count["count"]:
-        return await get_category_map(db, user_id)
+    existing_rows = await db.fetch("SELECT category_name FROM categories WHERE user_id = $1", user_id)
+    existing_names = {row["category_name"] for row in existing_rows}
+    hidden_rows = await db.fetch("SELECT category_name FROM hidden_default_categories WHERE user_id = $1", user_id)
+    hidden_names = {row["category_name"] for row in hidden_rows}
 
     for category in DEFAULT_CATEGORIES:
+        if category["name"] in existing_names or category["name"] in hidden_names:
+            continue
+
         await db.execute(
             """
             INSERT INTO categories (user_id, category_name, monthly_limit, category_type, category_icon)
