@@ -7,16 +7,12 @@ import { ProgressBar } from "../components/FinanceUI";
 import { Screen } from "../components/Layout";
 import { formatVND } from "../data/finance";
 import { useFinanceData } from "../hooks/useFinanceData";
+import { useSavingsGoals } from "../hooks/useSavingsGoals";
 import { colors } from "../theme";
-
-const goals = [
-  { id: "laptop", title: "Buy a Laptop", current: 12000000, target: 20000000 },
-  { id: "trip", title: "Vacation Trip", current: 8500000, target: 15000000 },
-  { id: "emergency", title: "Emergency Fund", current: 24000000, target: 50000000 }
-];
 
 export default function DashboardScreen() {
   const { categories, error, hasData, loading, refresh, summary, transactions } = useFinanceData();
+  const { goals, loading: goalsLoading, refresh: refreshGoals } = useSavingsGoals();
   const { width } = useWindowDimensions();
   const [preset, setPreset] = useState("month");
   const [selectedForecast, setSelectedForecast] = useState(null);
@@ -52,8 +48,12 @@ export default function DashboardScreen() {
 
   const forecastPoints = useMemo(() => buildForecastPoints(currentTransactions), [currentTransactions]);
 
+  async function refreshAll() {
+    await Promise.all([refresh(), refreshGoals()]);
+  }
+
   return (
-    <Screen eyebrow="Dashboard" title="Dashboard" refreshing={loading} onRefresh={refresh}>
+    <Screen eyebrow="Dashboard" title="Dashboard" refreshing={loading || goalsLoading} onRefresh={refreshAll}>
       {!!error && <EmptyState title="Could not load finance data" message={error} />}
 
       <View style={styles.rangeRow}>
@@ -151,7 +151,6 @@ export default function DashboardScreen() {
       <Card>
         <Text style={styles.cardTitle}>Savings Goals</Text>
         {goals.map((goal) => {
-          const progress = Math.round((goal.current / goal.target) * 100);
           return (
             <View key={goal.id} style={styles.goalBox}>
               <View style={styles.goalTop}>
@@ -159,13 +158,14 @@ export default function DashboardScreen() {
                   <Text style={styles.goalTitle}>{goal.title}</Text>
                   <Text style={styles.goalMeta}>{formatVND(goal.current)} of {formatVND(goal.target)}</Text>
                 </View>
-                <Text style={styles.goalPercent}>{progress}%</Text>
+                <Text style={styles.goalPercent}>{goal.progress}%</Text>
               </View>
-              <ProgressBar progress={progress} color={colors.primary} />
+              <ProgressBar progress={goal.progress} color={colors.primary} />
               <Text style={styles.goalNote}>Estimated completion updates as savings activity grows.</Text>
             </View>
           );
         })}
+        {!goals.length && <Text style={styles.emptyInline}>No savings goals yet. Open Goals from More to create one.</Text>}
       </Card>
 
       <SectionTitle title="Budget Progress" />

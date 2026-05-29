@@ -12,6 +12,11 @@ import TransactionsScreen from "./src/screens/TransactionsScreen";
 import CategoriesScreen from "./src/screens/CategoriesScreen";
 import ReportsScreen from "./src/screens/ReportsScreen";
 import MoreScreen from "./src/screens/MoreScreen";
+import AccountsScreen from "./src/screens/AccountsScreen";
+import GoalsScreen from "./src/screens/GoalsScreen";
+import AssistantScreen from "./src/screens/AssistantScreen";
+import ProfileScreen from "./src/screens/ProfileScreen";
+import SettingsScreen from "./src/screens/SettingsScreen";
 import { AuthProvider } from "./src/context/AuthContext";
 import { colors } from "./src/theme";
 
@@ -27,6 +32,10 @@ const iconMap = {
 };
 
 const AUTH_STORAGE_KEY = "budgetmate.auth";
+const hiddenTabOptions = {
+  tabBarButton: () => null,
+  tabBarItemStyle: { display: "none" }
+};
 
 function AppTabs() {
   const { width } = useWindowDimensions();
@@ -67,6 +76,11 @@ function AppTabs() {
         <Tab.Screen name="Categories" component={CategoriesScreen} />
         <Tab.Screen name="Reports" component={ReportsScreen} />
         <Tab.Screen name="More" component={MoreScreen} />
+        <Tab.Screen name="Accounts" component={AccountsScreen} options={hiddenTabOptions} />
+        <Tab.Screen name="Goals" component={GoalsScreen} options={hiddenTabOptions} />
+        <Tab.Screen name="Assistant" component={AssistantScreen} options={hiddenTabOptions} />
+        <Tab.Screen name="Profile" component={ProfileScreen} options={hiddenTabOptions} />
+        <Tab.Screen name="Settings" component={SettingsScreen} options={hiddenTabOptions} />
       </Tab.Navigator>
     </NavigationContainer>
   );

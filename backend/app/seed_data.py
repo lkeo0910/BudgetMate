@@ -59,6 +59,70 @@ async def init_finance_schema(db):
             UNIQUE(user_id, category_name)
         )
     """)
+    await db.execute("""
+        CREATE TABLE IF NOT EXISTS savings_goals (
+            id SERIAL PRIMARY KEY,
+            user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            category_id INTEGER REFERENCES categories(id) ON DELETE SET NULL,
+            title VARCHAR(160) NOT NULL,
+            target_amount NUMERIC NOT NULL,
+            initial_amount NUMERIC NOT NULL DEFAULT 0,
+            target_date DATE,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    await db.execute("""
+        CREATE TABLE IF NOT EXISTS savings_goal_contributions (
+            id SERIAL PRIMARY KEY,
+            goal_id INTEGER NOT NULL REFERENCES savings_goals(id) ON DELETE CASCADE,
+            user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            transaction_id INTEGER REFERENCES transactions(id) ON DELETE SET NULL,
+            amount NUMERIC NOT NULL,
+            date DATE NOT NULL,
+            note TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    try:
+        await db.execute("""
+            ALTER TABLE savings_goal_contributions
+            ADD COLUMN IF NOT EXISTS transaction_id INTEGER REFERENCES transactions(id) ON DELETE SET NULL
+        """)
+    except Exception:
+        if hasattr(db, "add_column_if_missing"):
+            await db.add_column_if_missing(
+                "savings_goal_contributions",
+                "transaction_id",
+                "INTEGER REFERENCES transactions(id) ON DELETE SET NULL",
+            )
+    await db.execute("""
+        CREATE TABLE IF NOT EXISTS chat_sections (
+            id SERIAL PRIMARY KEY,
+            user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            name VARCHAR(120),
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    await db.execute("""
+        CREATE TABLE IF NOT EXISTS chat_messages (
+            id SERIAL PRIMARY KEY,
+            section_id INTEGER NOT NULL REFERENCES chat_sections(id) ON DELETE CASCADE,
+            user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            role VARCHAR(20) NOT NULL,
+            content TEXT NOT NULL,
+            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    await db.execute("""
+        CREATE TABLE IF NOT EXISTS user_settings (
+            user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+            preferred_currency VARCHAR(20) NOT NULL DEFAULT 'vnd',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
 
 
 async def ensure_seed_user(db, username="test_user", password="password123"):
@@ -146,6 +210,7 @@ async def ensure_seeded_transactions(db, user_id, category_map):
 
 
 async def seed_initial_data(db):
-    user_id = await ensure_seed_user(db)
-    category_map = await ensure_default_categories(db, user_id)
-    await ensure_seeded_transactions(db, user_id, category_map)
+    for username in ("demo_user", "test_user"):
+        user_id = await ensure_seed_user(db, username=username)
+        category_map = await ensure_default_categories(db, user_id)
+        await ensure_seeded_transactions(db, user_id, category_map)

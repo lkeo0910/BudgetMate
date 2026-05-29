@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { Modal, Pressable, StyleSheet, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { useNavigation } from "@react-navigation/native";
 import { colors } from "../theme";
 import { useAuth } from "../context/AuthContext";
 
@@ -10,8 +11,14 @@ function initialsFor(username) {
 
 export default function ProfileMenu() {
   const auth = useAuth();
+  const navigation = useNavigation();
   const user = auth?.user;
   const [open, setOpen] = useState(false);
+
+  function go(route) {
+    setOpen(false);
+    navigation.navigate(route);
+  }
 
   return (
     <>
@@ -24,61 +31,27 @@ export default function ProfileMenu() {
           <View style={styles.panel}>
             <View style={styles.header}>
               <View>
-                <Text style={styles.heading}>Settings</Text>
-                <Text style={styles.subheading}>Manage your account preferences and budget configurations.</Text>
+                <Text style={styles.heading}>Account</Text>
+                <Text style={styles.subheading}>{user?.username || "BudgetMate"}</Text>
               </View>
               <Pressable style={styles.iconButton} onPress={() => setOpen(false)}>
                 <Ionicons name="close" color={colors.ink} size={21} />
               </Pressable>
             </View>
 
-            <View style={styles.tabs}>
-              <View style={[styles.tab, styles.activeTab]}>
-                <Ionicons name="settings-outline" color={colors.primary} size={18} />
-                <Text style={styles.activeTabText}>General Preferences</Text>
-              </View>
-              <View style={styles.tab}>
-                <Ionicons name="lock-closed-outline" color="#7f94b6" size={18} />
-                <Text style={styles.tabText}>Security & Privacy</Text>
-              </View>
-            </View>
-
             <View style={styles.card}>
-              <Text style={styles.cardTitle}>General Preferences</Text>
-              <Text style={styles.cardSubtitle}>Manage your profile and basic settings.</Text>
-
-              <View style={styles.profileRow}>
-                <View style={styles.largeAvatar}>
-                  <Text style={styles.largeAvatarText}>{initialsFor(user?.username)}</Text>
-                </View>
-                <View style={styles.profileCopy}>
-                  <Text style={styles.label}>Profile Photo</Text>
-                  <Pressable style={styles.uploadButton}>
-                    <Text style={styles.uploadText}>Upload Photo</Text>
-                  </Pressable>
-                  <Text style={styles.helpText}>PNG, JPG or GIF (max. 2MB)</Text>
-                </View>
-              </View>
-
-              <View style={styles.preference}>
-                <View style={styles.preferenceLabel}>
-                  <Ionicons name="globe-outline" color="#7f94b6" size={18} />
-                  <Text style={styles.label}>Preferred Currency</Text>
-                </View>
-                <View style={styles.selectBox}>
-                  <Text style={styles.selectText}>Vietnamese Dong (₫)</Text>
-                  <Ionicons name="chevron-down" color="#8a99ad" size={18} />
-                </View>
-              </View>
-
-              <View style={styles.actions}>
-                <Pressable style={styles.saveButton} onPress={() => setOpen(false)}>
-                  <Text style={styles.saveText}>Save Changes</Text>
-                </Pressable>
-                <Pressable style={styles.cancelButton} onPress={() => setOpen(false)}>
-                  <Text style={styles.cancelText}>Cancel</Text>
-                </Pressable>
-              </View>
+              <Pressable style={styles.menuRow} onPress={() => go("Profile")}>
+                <Ionicons name="person-outline" color={colors.primary} size={20} />
+                <Text style={styles.menuText}>Profile Details</Text>
+              </Pressable>
+              <Pressable style={styles.menuRow} onPress={() => go("Settings")}>
+                <Ionicons name="settings-outline" color={colors.primary} size={20} />
+                <Text style={styles.menuText}>Settings</Text>
+              </Pressable>
+              <Pressable style={styles.menuRow} onPress={() => go("Accounts")}>
+                <Ionicons name="business-outline" color={colors.primary} size={20} />
+                <Text style={styles.menuText}>Accounts Overview</Text>
+              </Pressable>
             </View>
 
             <Pressable style={styles.logoutButton} onPress={auth?.logout}>
@@ -151,6 +124,18 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
     borderWidth: 1,
     borderColor: colors.border
+  },
+  menuRow: {
+    minHeight: 52,
+    borderRadius: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingHorizontal: 12
+  },
+  menuText: {
+    color: colors.ink,
+    fontWeight: "900"
   },
   cardTitle: { color: colors.ink, fontSize: 22, fontWeight: "900" },
   cardSubtitle: { color: "#55708f", marginTop: 4, fontWeight: "700" },

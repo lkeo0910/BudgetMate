@@ -87,3 +87,73 @@ export async function deleteCategory(token, categoryId) {
   const response = await api.delete(`/users/categories/${categoryId}`, { headers: authHeaders(token) });
   return response.data;
 }
+
+export async function getCurrentUser(token) {
+  const response = await api.get("/users/me", { headers: authHeaders(token) });
+  return response.data;
+}
+
+export async function updateCurrentUser(token, payload) {
+  const response = await api.patch("/users/me", payload, { headers: authHeaders(token) });
+  return response.data;
+}
+
+export async function getUserSettings(token) {
+  const response = await api.get("/users/settings", { headers: authHeaders(token) });
+  return response.data;
+}
+
+export async function updateUserSettings(token, payload) {
+  const response = await api.put("/users/settings", payload, { headers: authHeaders(token) });
+  return response.data;
+}
+
+export async function getSavingsGoals(token) {
+  const response = await api.get("/users/savings-goals", { headers: authHeaders(token) });
+  return response.data;
+}
+
+export async function createSavingsGoal(token, payload) {
+  const response = await api.post("/users/savings-goals", payload, { headers: authHeaders(token) });
+  return response.data;
+}
+
+export async function deleteSavingsGoal(token, goalId) {
+  const response = await api.delete(`/users/savings-goals/${goalId}`, { headers: authHeaders(token) });
+  return response.data;
+}
+
+export async function createGoalContribution(token, goalId, payload) {
+  const response = await api.post(`/users/savings-goals/${goalId}/contributions`, payload, { headers: authHeaders(token) });
+  return response.data;
+}
+
+export async function getChatSections(token) {
+  const response = await api.get("/chatbot/sections", { headers: authHeaders(token) });
+  return response.data;
+}
+
+export async function createChatSection(token, payload = {}) {
+  const response = await api.post("/chatbot/sections", payload, { headers: authHeaders(token) });
+  return response.data;
+}
+
+export async function getChatSection(token, sectionId) {
+  const response = await api.get(`/chatbot/sections/${sectionId}`, { headers: authHeaders(token) });
+  return response.data;
+}
+
+export async function updateChatSection(token, sectionId, payload) {
+  const response = await api.put(`/chatbot/sections/${sectionId}`, payload, { headers: authHeaders(token) });
+  return response.data;
+}
+
+export async function deleteChatSection(token, sectionId) {
+  const response = await api.delete(`/chatbot/sections/${sectionId}`, { headers: authHeaders(token) });
+  return response.data;
+}
+
+export async function sendChatMessage(token, payload) {
+  const response = await api.post("/chatbot/chat", payload, { headers: authHeaders(token) });
+  return response.data;
+}

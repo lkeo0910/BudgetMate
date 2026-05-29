@@ -1,5 +1,23 @@
-from fastapi import APIRouter, HTTPException, Header, status
-from app.models import CategoryCreate, CategoryUpdate, TransactionCreate, TransactionUpdate, UserCreate, UserLogin, TokenResponse, UserResponse
+from datetime import date
+import math
+
+from fastapi import APIRouter, HTTPException, Header, Query, status
+from app.models import (
+    CategoryCreate,
+    CategoryUpdate,
+    ChatRequest,
+    ChatSectionCreate,
+    ChatSectionUpdate,
+    GoalContributionCreate,
+    SavingsGoalCreate,
+    TransactionCreate,
+    TransactionUpdate,
+    UserCreate,
+    UserLogin,
+    TokenResponse,
+    UserResponse,
+    UserSettingsUpdate,
+)
 from app.auth import hash_password, verify_password, create_access_token, decode_token
 from app.database import get_db
 from app.seed_data import ensure_default_categories
@@ -10,6 +28,9 @@ finance_router = APIRouter(tags=["finance"])
 
 TRANSACTION_COLUMNS = "id, user_id, vendor, category_id, amount, date, type, notes, created_at, updated_at"
 CATEGORY_COLUMNS = "id, user_id, category_name, monthly_limit, category_type, category_icon, created_at, updated_at"
+GOAL_COLUMNS = "id, user_id, category_id, title, target_amount, initial_amount, target_date, created_at, updated_at"
+CONTRIBUTION_COLUMNS = "id, goal_id, user_id, amount, date, note, created_at"
+CHAT_SECTION_COLUMNS = "id, user_id, name, created_at, updated_at"
 
 
 async def require_current_user_id(authorization: str | None) -> int:
@@ -77,6 +98,161 @@ async def get_user_transaction(db, user_id: int, transaction_id: int):
     if not transaction:
         raise HTTPException(status_code=404, detail="Transaction not found")
     return dict(transaction)
+
+
+def api_error_message(exc: Exception, fallback: str) -> str:
+    text = str(exc)
+    return text if text else fallback
+
+
+def row_to_goal(row) -> dict:
+    goal = dict(row)
+    goal["id"] = str(goal["id"])
+    goal["user_id"] = str(goal["user_id"])
+    if goal.get("category_id") is not None:
+        goal["category_id"] = str(goal["category_id"])
+    return goal
+
+
+def row_to_contribution(row) -> dict:
+    contribution = dict(row)
+    contribution["id"] = str(contribution["id"])
+    contribution["goal_id"] = str(contribution["goal_id"])
+    contribution["user_id"] = str(contribution["user_id"])
+    return contribution
+
+
+def row_to_section_summary(row) -> dict:
+    section = dict(row)
+    return {
+        "section_id": str(section["id"]),
+        "name": section.get("name"),
+        "date": section.get("updated_at") or section.get("created_at"),
+    }
+
+
+async def get_user_goal(db, user_id: int, goal_id: int):
+    row = await db.fetchrow(
+        f"""
+        SELECT {GOAL_COLUMNS}
+        FROM savings_goals
+        WHERE id = $1 AND user_id = $2
+        """,
+        goal_id,
+        user_id,
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Savings goal not found")
+    return dict(row)
+
+
+async def get_or_create_goal_category(db, user_id: int, title: str) -> int:
+    existing = await db.fetchrow(
+        """
+        SELECT id
+        FROM categories
+        WHERE user_id = $1 AND LOWER(category_name) = LOWER($2)
+        """,
+        user_id,
+        title,
+    )
+    if existing:
+        return existing["id"]
+
+    row = await db.fetchrow(
+        """
+        INSERT INTO categories (user_id, category_name, monthly_limit, category_type, category_icon)
+        VALUES ($1, $2, $3, $4, $5)
+        RETURNING id
+        """,
+        user_id,
+        title,
+        None,
+        "expense",
+        "flag-outline",
+    )
+    return row["id"]
+
+
+async def ensure_user_settings(db, user_id: int):
+    settings = await db.fetchrow(
+        """
+        SELECT user_id, preferred_currency, created_at, updated_at
+        FROM user_settings
+        WHERE user_id = $1
+        """,
+        user_id,
+    )
+    if settings:
+        return dict(settings)
+
+    row = await db.fetchrow(
+        """
+        INSERT INTO user_settings (user_id, preferred_currency)
+        VALUES ($1, $2)
+        RETURNING user_id, preferred_currency, created_at, updated_at
+        """,
+        user_id,
+        "vnd",
+    )
+    return dict(row)
+
+
+def parse_positive_int(value: str, name: str) -> int:
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail=f"Invalid {name}")
+    if number <= 0:
+        raise HTTPException(status_code=400, detail=f"Invalid {name}")
+    return number
+
+
+async def build_chat_response(db, user_id: int, message: str) -> str:
+    rows = await db.fetch(
+        """
+        SELECT t.amount, t.type, t.date, c.category_name
+        FROM transactions t
+        LEFT JOIN categories c ON c.id = t.category_id
+        WHERE t.user_id = $1
+        ORDER BY t.date DESC
+        """,
+        user_id,
+    )
+    transactions = [dict(row) for row in rows]
+    income = sum(float(item["amount"] or 0) for item in transactions if item["type"] == "INCOME")
+    expenses = sum(float(item["amount"] or 0) for item in transactions if item["type"] != "INCOME")
+    balance = income - expenses
+    lower = message.lower()
+
+    category_totals: dict[str, float] = {}
+    for item in transactions:
+        if item["type"] == "INCOME":
+            continue
+        name = item.get("category_name") or "Uncategorized"
+        category_totals[name] = category_totals.get(name, 0) + float(item["amount"] or 0)
+    top_categories = sorted(category_totals.items(), key=lambda entry: entry[1], reverse=True)[:3]
+
+    def money(value: float) -> str:
+        return f"{value:,.0f} VND"
+
+    if not transactions:
+        return "I do not see any transactions yet. Add a few income and expense entries, then I can summarize cash flow, top categories, and budget pressure."
+
+    if "spend" in lower or "expense" in lower or "category" in lower:
+        if not top_categories:
+            return "You have income recorded, but no spending yet. Add expenses to see category trends."
+        category_text = ", ".join(f"{name}: {money(total)}" for name, total in top_categories)
+        return f"Your top expense categories are {category_text}. Total spending is {money(expenses)}, so start with the largest category for the quickest improvement."
+
+    if "income" in lower or "salary" in lower or "earn" in lower:
+        return f"Recorded income totals {money(income)}. After {money(expenses)} in expenses, your net balance is {money(balance)}."
+
+    if "budget" in lower or "save" in lower or "saving" in lower:
+        savings_rate = (balance / income * 100) if income else 0
+        return f"Your savings rate is about {max(savings_rate, 0):.0f}%. A practical next move is to assign limits to the top spending categories and review them weekly."
+
+    return f"Here is the current snapshot: income {money(income)}, expenses {money(expenses)}, net balance {money(balance)}. Ask about spending, income, savings, or budget categories for a deeper breakdown."
 
 
 @router.post("/register", response_model=TokenResponse, status_code=201)
@@ -229,6 +405,82 @@ async def get_current_user(authorization: str = Header(None)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@finance_router.get("/users/me", response_model=UserResponse)
+async def get_current_user_alias(authorization: str = Header(None)):
+    return await get_current_user(authorization)
+
+
+@finance_router.patch("/users/me", response_model=UserResponse)
+async def update_current_user(update: UserSettingsUpdate, authorization: str = Header(None)):
+    user_id = await require_current_user_id(authorization)
+    db = get_db()
+    if not db:
+        raise HTTPException(status_code=503, detail="Database service unavailable. Check server logs.")
+
+    updates = {}
+    if update.phone_number is not None:
+        updates["phone_number"] = update.phone_number
+    if update.avatar_url is not None:
+        updates["avatar_url"] = update.avatar_url
+
+    if updates:
+        set_parts = []
+        values = []
+        for index, (field, value) in enumerate(updates.items(), start=1):
+            set_parts.append(f"{field} = ${index}")
+            values.append(value)
+        values.append(user_id)
+        await db.execute(
+            f"""
+            UPDATE users
+            SET {", ".join(set_parts)}, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ${len(values)}
+            """,
+            *values,
+        )
+
+    return await get_current_user(authorization)
+
+
+@finance_router.get("/users/settings")
+async def get_current_user_settings(authorization: str = Header(None)):
+    user_id = await require_current_user_id(authorization)
+    db = get_db()
+    if not db:
+        raise HTTPException(status_code=503, detail="Database service unavailable. Check server logs.")
+    settings = await ensure_user_settings(db, user_id)
+    return {
+        "user_id": str(settings["user_id"]),
+        "preferred_currency": settings["preferred_currency"],
+        "created_at": settings["created_at"],
+        "updated_at": settings["updated_at"],
+    }
+
+
+@finance_router.put("/users/settings")
+async def update_current_user_settings(update: UserSettingsUpdate, authorization: str = Header(None)):
+    user_id = await require_current_user_id(authorization)
+    db = get_db()
+    if not db:
+        raise HTTPException(status_code=503, detail="Database service unavailable. Check server logs.")
+
+    await ensure_user_settings(db, user_id)
+    if update.preferred_currency:
+        await db.execute(
+            """
+            UPDATE user_settings
+            SET preferred_currency = $1, updated_at = CURRENT_TIMESTAMP
+            WHERE user_id = $2
+            """,
+            update.preferred_currency,
+            user_id,
+        )
+    if update.phone_number is not None or update.avatar_url is not None:
+        await update_current_user(update, authorization)
+
+    return await get_current_user_settings(authorization)
+
+
 @finance_router.get("/users/categories")
 async def get_categories(authorization: str = Header(None)):
     user_id = await require_current_user_id(authorization)
@@ -364,22 +616,50 @@ async def delete_category(category_id: int, authorization: str = Header(None)):
 
 @finance_router.get("/transactions")
 @finance_router.get("/transactions/")
-async def get_transactions(authorization: str = Header(None)):
+async def get_transactions(
+    authorization: str = Header(None),
+    page: int | None = Query(None, ge=1),
+    size: int | None = Query(None, ge=1, le=500),
+    orderBy: str = Query("date", pattern="^(date|amount|vendor|created_at)$"),
+    order: str = Query("desc", pattern="^(asc|desc)$"),
+):
     user_id = await require_current_user_id(authorization)
     db = get_db()
     if not db:
         raise HTTPException(status_code=503, detail="Database service unavailable. Check server logs.")
 
+    sort_column = {
+        "date": "date",
+        "amount": "amount",
+        "vendor": "vendor",
+        "created_at": "created_at",
+    }[orderBy]
+    sort_direction = "ASC" if order.lower() == "asc" else "DESC"
     rows = await db.fetch(
-        """
-        SELECT id, user_id, vendor, category_id, amount, date, type, notes, created_at, updated_at
+        f"""
+        SELECT {TRANSACTION_COLUMNS}
         FROM transactions
         WHERE user_id = $1
-        ORDER BY date DESC, created_at DESC
+        ORDER BY {sort_column} {sort_direction}, created_at DESC
         """,
         user_id,
     )
-    return [dict(row) for row in rows]
+    items = [dict(row) for row in rows]
+    if page is None and size is None:
+        return items
+
+    page_number = page or 1
+    page_size = size or 50
+    start = (page_number - 1) * page_size
+    end = start + page_size
+    total = len(items)
+    return {
+        "items": items[start:end],
+        "total": total,
+        "page": page_number,
+        "size": page_size,
+        "pages": max(1, math.ceil(total / page_size)),
+    }
 
 
 @finance_router.post("/transactions", status_code=status.HTTP_201_CREATED)
@@ -475,3 +755,379 @@ async def delete_transaction(transaction_id: int, authorization: str = Header(No
     if not row:
         raise HTTPException(status_code=404, detail="Transaction not found")
     return {"deleted": True, "id": row["id"]}
+
+
+@finance_router.get("/users/savings-goals")
+async def get_savings_goals(authorization: str = Header(None)):
+    user_id = await require_current_user_id(authorization)
+    db = get_db()
+    if not db:
+        raise HTTPException(status_code=503, detail="Database service unavailable. Check server logs.")
+
+    goals = await db.fetch(
+        f"""
+        SELECT {GOAL_COLUMNS}
+        FROM savings_goals
+        WHERE user_id = $1
+        ORDER BY created_at DESC
+        """,
+        user_id,
+    )
+    contributions = await db.fetch(
+        f"""
+        SELECT {CONTRIBUTION_COLUMNS}
+        FROM savings_goal_contributions
+        WHERE user_id = $1
+        ORDER BY date DESC, created_at DESC
+        """,
+        user_id,
+    )
+    return {
+        "goals": [row_to_goal(row) for row in goals],
+        "contributions": [row_to_contribution(row) for row in contributions],
+    }
+
+
+@finance_router.post("/users/savings-goals", status_code=status.HTTP_201_CREATED)
+async def create_savings_goal(goal: SavingsGoalCreate, authorization: str = Header(None)):
+    user_id = await require_current_user_id(authorization)
+    db = get_db()
+    if not db:
+        raise HTTPException(status_code=503, detail="Database service unavailable. Check server logs.")
+
+    if goal.initial_amount > goal.target_amount:
+        raise HTTPException(status_code=400, detail="Already saved cannot be greater than target amount")
+    if goal.target_date and goal.target_date < date.today():
+        raise HTTPException(status_code=400, detail="Target date must be today or later")
+
+    category_id = await get_or_create_goal_category(db, user_id, goal.title.strip())
+    row = await db.fetchrow(
+        f"""
+        INSERT INTO savings_goals (user_id, category_id, title, target_amount, initial_amount, target_date)
+        VALUES ($1, $2, $3, $4, $5, $6)
+        RETURNING {GOAL_COLUMNS}
+        """,
+        user_id,
+        category_id,
+        goal.title.strip(),
+        goal.target_amount,
+        goal.initial_amount,
+        goal.target_date.isoformat() if goal.target_date else None,
+    )
+    return row_to_goal(row)
+
+
+@finance_router.delete("/users/savings-goals/{goal_id}")
+async def delete_savings_goal(goal_id: int, authorization: str = Header(None)):
+    user_id = await require_current_user_id(authorization)
+    db = get_db()
+    if not db:
+        raise HTTPException(status_code=503, detail="Database service unavailable. Check server logs.")
+
+    goal = await get_user_goal(db, user_id, goal_id)
+    try:
+        contribution_rows = await db.fetch(
+            """
+            SELECT transaction_id
+            FROM savings_goal_contributions
+            WHERE goal_id = $1 AND user_id = $2 AND transaction_id IS NOT NULL
+            """,
+            goal_id,
+            user_id,
+        )
+    except Exception:
+        contribution_rows = []
+    for contribution_row in contribution_rows:
+        await db.execute(
+            """
+            DELETE FROM transactions
+            WHERE id = $1 AND user_id = $2
+            """,
+            contribution_row["transaction_id"],
+            user_id,
+        )
+    await db.execute(
+        """
+        DELETE FROM savings_goal_contributions
+        WHERE goal_id = $1 AND user_id = $2
+        """,
+        goal_id,
+        user_id,
+    )
+    row = await db.fetchrow(
+        """
+        DELETE FROM savings_goals
+        WHERE id = $1 AND user_id = $2
+        RETURNING id
+        """,
+        goal_id,
+        user_id,
+    )
+    if goal.get("category_id"):
+        transaction_count = await db.fetchrow(
+            """
+            SELECT COUNT(*) AS count
+            FROM transactions
+            WHERE user_id = $1 AND category_id = $2
+            """,
+            user_id,
+            goal["category_id"],
+        )
+        goal_count = await db.fetchrow(
+            """
+            SELECT COUNT(*) AS count
+            FROM savings_goals
+            WHERE user_id = $1 AND category_id = $2
+            """,
+            user_id,
+            goal["category_id"],
+        )
+        if not transaction_count["count"] and not goal_count["count"]:
+            await db.execute(
+                """
+                DELETE FROM categories
+                WHERE id = $1 AND user_id = $2
+                """,
+                goal["category_id"],
+                user_id,
+            )
+    return {"deleted": True, "id": str(row["id"])}
+
+
+@finance_router.post("/users/savings-goals/{goal_id}/contributions", status_code=status.HTTP_201_CREATED)
+async def create_goal_contribution(goal_id: int, contribution: GoalContributionCreate, authorization: str = Header(None)):
+    user_id = await require_current_user_id(authorization)
+    db = get_db()
+    if not db:
+        raise HTTPException(status_code=503, detail="Database service unavailable. Check server logs.")
+
+    goal = await get_user_goal(db, user_id, goal_id)
+    contribution_date = contribution.date or date.today()
+    category_id = goal.get("category_id") or await get_or_create_goal_category(db, user_id, goal["title"])
+    if not goal.get("category_id"):
+        await db.execute(
+            """
+            UPDATE savings_goals
+            SET category_id = $1, updated_at = CURRENT_TIMESTAMP
+            WHERE id = $2 AND user_id = $3
+            """,
+            category_id,
+            goal_id,
+            user_id,
+        )
+
+    row = await db.fetchrow(
+        f"""
+        INSERT INTO savings_goal_contributions (goal_id, user_id, amount, date, note)
+        VALUES ($1, $2, $3, $4, $5)
+        RETURNING {CONTRIBUTION_COLUMNS}
+        """,
+        goal_id,
+        user_id,
+        contribution.amount,
+        contribution_date.isoformat(),
+        contribution.note,
+    )
+    transaction_row = await db.fetchrow(
+        """
+        INSERT INTO transactions (user_id, vendor, category_id, amount, date, type, notes)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
+        RETURNING id
+        """,
+        user_id,
+        goal["title"],
+        category_id,
+        contribution.amount,
+        contribution_date.isoformat(),
+        "EXPENSE",
+        contribution.note or f"Savings goal contribution: {goal['title']}",
+    )
+    try:
+        await db.execute(
+            """
+            UPDATE savings_goal_contributions
+            SET transaction_id = $1
+            WHERE id = $2 AND user_id = $3
+            """,
+            transaction_row["id"],
+            row["id"],
+            user_id,
+        )
+    except Exception:
+        pass
+    return row_to_contribution(row)
+
+
+@finance_router.post("/chatbot/sections", status_code=status.HTTP_201_CREATED)
+async def create_chat_section(section: ChatSectionCreate | None = None, authorization: str = Header(None)):
+    user_id = await require_current_user_id(authorization)
+    db = get_db()
+    if not db:
+        raise HTTPException(status_code=503, detail="Database service unavailable. Check server logs.")
+
+    row = await db.fetchrow(
+        f"""
+        INSERT INTO chat_sections (user_id, name)
+        VALUES ($1, $2)
+        RETURNING {CHAT_SECTION_COLUMNS}
+        """,
+        user_id,
+        section.name.strip() if section and section.name else None,
+    )
+    return row_to_section_summary(row)
+
+
+@finance_router.get("/chatbot/sections")
+async def get_chat_sections(authorization: str = Header(None)):
+    user_id = await require_current_user_id(authorization)
+    db = get_db()
+    if not db:
+        raise HTTPException(status_code=503, detail="Database service unavailable. Check server logs.")
+
+    rows = await db.fetch(
+        f"""
+        SELECT {CHAT_SECTION_COLUMNS}
+        FROM chat_sections
+        WHERE user_id = $1
+        ORDER BY updated_at DESC, created_at DESC
+        """,
+        user_id,
+    )
+    return [row_to_section_summary(row) for row in rows]
+
+
+@finance_router.get("/chatbot/sections/{section_id}")
+async def get_chat_section(section_id: int, authorization: str = Header(None)):
+    user_id = await require_current_user_id(authorization)
+    db = get_db()
+    if not db:
+        raise HTTPException(status_code=503, detail="Database service unavailable. Check server logs.")
+
+    section = await db.fetchrow(
+        f"""
+        SELECT {CHAT_SECTION_COLUMNS}
+        FROM chat_sections
+        WHERE id = $1 AND user_id = $2
+        """,
+        section_id,
+        user_id,
+    )
+    if not section:
+        raise HTTPException(status_code=404, detail="Chat section not found")
+
+    messages = await db.fetch(
+        """
+        SELECT role, content, timestamp
+        FROM chat_messages
+        WHERE section_id = $1 AND user_id = $2
+        ORDER BY timestamp ASC, id ASC
+        """,
+        section_id,
+        user_id,
+    )
+    return {
+        "section_id": str(section["id"]),
+        "user_id": str(section["user_id"]),
+        "name": section["name"],
+        "messages": [dict(message) for message in messages],
+        "created_at": section["created_at"],
+        "updated_at": section["updated_at"],
+    }
+
+
+@finance_router.put("/chatbot/sections/{section_id}")
+async def update_chat_section(section_id: int, update: ChatSectionUpdate, authorization: str = Header(None)):
+    user_id = await require_current_user_id(authorization)
+    db = get_db()
+    if not db:
+        raise HTTPException(status_code=503, detail="Database service unavailable. Check server logs.")
+
+    row = await db.fetchrow(
+        f"""
+        UPDATE chat_sections
+        SET name = $1, updated_at = CURRENT_TIMESTAMP
+        WHERE id = $2 AND user_id = $3
+        RETURNING {CHAT_SECTION_COLUMNS}
+        """,
+        update.name.strip(),
+        section_id,
+        user_id,
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Chat section not found")
+    return row_to_section_summary(row)
+
+
+@finance_router.delete("/chatbot/sections/{section_id}")
+async def delete_chat_section(section_id: int, authorization: str = Header(None)):
+    user_id = await require_current_user_id(authorization)
+    db = get_db()
+    if not db:
+        raise HTTPException(status_code=503, detail="Database service unavailable. Check server logs.")
+
+    row = await db.fetchrow(
+        """
+        DELETE FROM chat_sections
+        WHERE id = $1 AND user_id = $2
+        RETURNING id
+        """,
+        section_id,
+        user_id,
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Chat section not found")
+    return {"deleted": True, "id": str(row["id"])}
+
+
+@finance_router.post("/chatbot/chat")
+async def send_chat_message(request: ChatRequest, authorization: str = Header(None)):
+    user_id = await require_current_user_id(authorization)
+    db = get_db()
+    if not db:
+        raise HTTPException(status_code=503, detail="Database service unavailable. Check server logs.")
+
+    section_id = parse_positive_int(request.section_id, "section_id")
+    section = await db.fetchrow(
+        """
+        SELECT id
+        FROM chat_sections
+        WHERE id = $1 AND user_id = $2
+        """,
+        section_id,
+        user_id,
+    )
+    if not section:
+        raise HTTPException(status_code=404, detail="Chat section not found")
+
+    message = request.message.strip()
+    await db.execute(
+        """
+        INSERT INTO chat_messages (section_id, user_id, role, content)
+        VALUES ($1, $2, $3, $4)
+        """,
+        section_id,
+        user_id,
+        "user",
+        message,
+    )
+    response = await build_chat_response(db, user_id, message)
+    await db.execute(
+        """
+        INSERT INTO chat_messages (section_id, user_id, role, content)
+        VALUES ($1, $2, $3, $4)
+        """,
+        section_id,
+        user_id,
+        "ai",
+        response,
+    )
+    await db.execute(
+        """
+        UPDATE chat_sections
+        SET updated_at = CURRENT_TIMESTAMP
+        WHERE id = $1 AND user_id = $2
+        """,
+        section_id,
+        user_id,
+    )
+    return {"section_id": str(section_id), "response": response}

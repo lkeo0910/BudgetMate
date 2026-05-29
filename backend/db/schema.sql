@@ -1,67 +1,85 @@
-create table if not exists profile (
-  id serial primary key,
-  brand_name text not null,
-  tagline text not null,
-  owner_name text not null,
-  username text not null,
-  email text not null,
-  phone text,
-  location text,
-  summary text not null,
-  avatar_initials text not null,
-  joined_label text,
-  status_label text,
-  hero_metrics jsonb not null default '[]'::jsonb,
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
+-- BudgetMate development schema reference.
+-- The FastAPI app creates and migrates these tables on startup.
+
+CREATE TABLE IF NOT EXISTS users (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  username TEXT UNIQUE NOT NULL,
+  email TEXT,
+  phone_number TEXT,
+  avatar_url TEXT,
+  password_hash TEXT NOT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
-create table if not exists projects (
-  id serial primary key,
-  title text not null,
-  subtitle text not null,
-  description text not null,
-  accent text not null default '#2563eb',
-  link_url text,
-  link_label text,
-  stats jsonb not null default '[]'::jsonb,
-  sort_order integer not null default 0,
-  created_at timestamptz not null default now()
+CREATE TABLE IF NOT EXISTS categories (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  category_name TEXT NOT NULL,
+  monthly_limit REAL,
+  category_type TEXT NOT NULL DEFAULT 'expense',
+  category_icon TEXT,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE(user_id, category_name)
 );
 
-create table if not exists skills (
-  id serial primary key,
-  name text not null,
-  category text not null,
-  level integer not null check (level between 0 and 100),
-  description text not null,
-  sort_order integer not null default 0
+CREATE TABLE IF NOT EXISTS transactions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  vendor TEXT NOT NULL,
+  category_id INTEGER NOT NULL REFERENCES categories(id) ON DELETE CASCADE,
+  amount REAL NOT NULL,
+  date TEXT NOT NULL,
+  type TEXT NOT NULL,
+  notes TEXT,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
-create table if not exists education (
-  id serial primary key,
-  title text not null,
-  institution text not null,
-  period text not null,
-  description text not null,
-  highlights jsonb not null default '[]'::jsonb,
-  sort_order integer not null default 0
+CREATE TABLE IF NOT EXISTS savings_goals (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  category_id INTEGER REFERENCES categories(id) ON DELETE SET NULL,
+  title TEXT NOT NULL,
+  target_amount REAL NOT NULL,
+  initial_amount REAL NOT NULL DEFAULT 0,
+  target_date TEXT,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
-create table if not exists leadership (
-  id serial primary key,
-  title text not null,
-  organization text not null,
-  period text not null,
-  description text not null,
-  impact jsonb not null default '[]'::jsonb,
-  sort_order integer not null default 0
+CREATE TABLE IF NOT EXISTS savings_goal_contributions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  goal_id INTEGER NOT NULL REFERENCES savings_goals(id) ON DELETE CASCADE,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  transaction_id INTEGER REFERENCES transactions(id) ON DELETE SET NULL,
+  amount REAL NOT NULL,
+  date TEXT NOT NULL,
+  note TEXT,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
-create table if not exists contact_messages (
-  id serial primary key,
-  name text not null,
-  email text not null,
-  message text not null,
-  created_at timestamptz not null default now()
+CREATE TABLE IF NOT EXISTS chat_sections (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  name TEXT,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS chat_messages (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  section_id INTEGER NOT NULL REFERENCES chat_sections(id) ON DELETE CASCADE,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  role TEXT NOT NULL,
+  content TEXT NOT NULL,
+  timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS user_settings (
+  user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  preferred_currency TEXT NOT NULL DEFAULT 'vnd',
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );

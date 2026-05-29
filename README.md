@@ -1,14 +1,34 @@
-# BudgetMate Local Development
+# BudgetMate Mobile App
 
-BudgetMate has a FastAPI backend and an Expo React Native mobile app. For local editing, the easiest setup is to run the mobile app in the browser and use browser mobile view.
+BudgetMate is a full-stack mobile-first budgeting app built with an Expo React Native frontend, a FastAPI backend, and a local SQLite database for development.
 
 ## Local URLs
 
-- Backend API: http://localhost:8000
-- Backend health check: http://localhost:8000/health
-- Mobile app in browser: http://localhost:8081
+- Mobile web app: http://127.0.0.1:8081
+- Backend API: http://127.0.0.1:8000
+- Health check: http://127.0.0.1:8000/health
+- API docs: http://127.0.0.1:8000/docs
 
-## First Time Setup
+## Demo Login
+
+```text
+username: demo_user
+password: password123
+```
+
+`test_user` is also seeded for compatibility, but `demo_user` is the primary demo account.
+
+## Features
+
+- Login/register/logout with JWT auth
+- Dashboard, budget, transactions, categories, and reports
+- Accounts overview from real transaction data
+- Savings goals with contributions recorded as transactions
+- BudgetMate AI chat with saved chat sections and transaction-aware replies
+- Profile and settings screens
+- SQLite seed data for immediate local testing
+
+## Setup
 
 Backend:
 
@@ -18,7 +38,7 @@ uv sync
 cp .env.example .env
 ```
 
-For simple local development, set `backend/.env` like this:
+For local SQLite development, use:
 
 ```env
 DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:5432/budgetmate
@@ -41,86 +61,54 @@ npm install
 cp .env.example .env
 ```
 
-For browser testing, set `mobile/.env` like this:
+Use:
 
 ```env
 EXPO_PUBLIC_API_URL=http://127.0.0.1:8000/api/v1
 ```
 
-## Run The App
+## Run
 
-Open two terminals.
-
-Terminal 1, backend:
+Terminal 1:
 
 ```bash
 cd backend
 uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-Terminal 2, mobile web:
+Terminal 2:
 
 ```bash
 cd mobile
 npm run web
 ```
 
-Then open:
+Open http://127.0.0.1:8081 in a browser, ideally with DevTools mobile viewport enabled.
 
-```text
-http://localhost:8081
-```
+## Database
 
-Use Chrome DevTools mobile mode or a mobile view extension to preview the app as a phone.
-
-## Where Local Data Is Saved
-
-For this local setup, backend data is saved in:
+Local data is stored in:
 
 ```text
 backend/budgetmate.db
 ```
 
-That file is a local SQLite database. It is created and updated by the FastAPI backend when `DATABASE_FALLBACK_TO_SQLITE=true`.
+The backend creates tables and seeds demo data on startup when SQLite fallback is enabled. The app is structured so SQLite can be replaced later with PostgreSQL by changing environment variables and migrating the data.
 
-The mobile app does not directly save the main database. It calls the backend API, and the backend saves the data.
+## Tests
 
-## Future Hosting
-
-For hosting, do not use the local SQLite file. Use a hosted PostgreSQL database instead, for example Supabase, Render Postgres, Neon, or Railway.
-
-In production, set:
-
-```env
-DATABASE_FALLBACK_TO_SQLITE=false
-DATABASE_URL=your_hosted_postgres_connection_string
-```
-
-Then set the hosted backend API URL in `mobile/.env`:
-
-```env
-EXPO_PUBLIC_API_URL=https://your-backend-domain.com/api/v1
-```
-
-The app can use the same database structure, but it will not automatically use your local `backend/budgetmate.db` file after hosting. If you want to move local data to production later, you must export/migrate the SQLite data into PostgreSQL.
-
-## Quick Checks
-
-Check backend:
+Backend smoke tests:
 
 ```bash
-curl http://localhost:8000/health
+cd backend
+uv run python -m unittest discover -s tests
 ```
 
-Expected:
+The smoke test uses a temporary SQLite database and verifies demo login, categories, paginated transactions, savings goals, contributions, and chat.
 
-```json
-{"ok":true,"service":"budgetmate-api"}
-```
+## Troubleshooting
 
-If the browser shows Expo JSON instead of the app, restart the mobile server:
-
-```bash
-cd mobile
-npm run web
-```
+- If login fails, confirm the backend is running and `mobile/.env` points to `http://127.0.0.1:8000/api/v1`.
+- If port `8081` is busy, stop the existing Expo server or run Expo on another port.
+- If seeded data looks stale, stop the backend and remove `backend/budgetmate.db`; it will be recreated on the next backend start.
+- MongoDB/PostgreSQL connection warnings are expected in local SQLite mode when those services are not running.

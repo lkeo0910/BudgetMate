@@ -64,13 +64,29 @@ backend/budgetmate.db
 The demo account is:
 
 ```text
-username: test_user
+username: demo_user
 password: password123
 ```
 
-Important: only `test_user` has the seeded demo finance data.
+`test_user` is also seeded for compatibility, but `demo_user` is the primary account used by the live website and the local mobile app.
 
 New accounts can register and login, but they start with no transactions or finance data. That is expected.
+
+## Main Local Features
+
+- Dashboard, budget, transactions, categories, and reports
+- Accounts overview from transaction data
+- Savings goals and contributions
+- BudgetMate AI chat
+- Profile and settings
+
+## Tests
+
+From the backend folder:
+
+```bash
+uv run python -m unittest discover -s tests
+```
 
 ## Create Account Notes
 

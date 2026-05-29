@@ -65,6 +65,38 @@ class TransactionUpdate(BaseModel):
     notes: str | None = None
 
 
+class SavingsGoalCreate(BaseModel):
+    title: str = Field(..., min_length=1, max_length=160)
+    target_amount: float = Field(..., gt=0)
+    initial_amount: float = Field(0, ge=0)
+    target_date: date_type | None = None
+
+
+class GoalContributionCreate(BaseModel):
+    amount: float = Field(..., gt=0)
+    date: date_type | None = None
+    note: str | None = Field(None, max_length=500)
+
+
+class ChatSectionCreate(BaseModel):
+    name: str | None = Field(None, min_length=1, max_length=120)
+
+
+class ChatSectionUpdate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=120)
+
+
+class ChatRequest(BaseModel):
+    message: str = Field(..., min_length=1, max_length=2000)
+    section_id: str
+
+
+class UserSettingsUpdate(BaseModel):
+    preferred_currency: str | None = Field(None, pattern="^(vnd|usd|eur)$")
+    avatar_url: str | None = None
+    phone_number: str | None = None
+
+
 class ChatMessage(BaseModel):
     user_id: int
     message: str

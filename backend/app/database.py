@@ -23,6 +23,7 @@ class SQLiteDatabase:
     async def connect(self):
         self.connection = await aiosqlite.connect(self.path)
         self.connection.row_factory = aiosqlite.Row
+        await self.connection.execute("PRAGMA foreign_keys = ON")
         await self.execute("""
             CREATE TABLE IF NOT EXISTS users (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -84,14 +85,17 @@ class SQLiteDatabase:
         return converted
 
     async def _add_column_if_missing(self, column_name: str, column_type: str):
+        await self.add_column_if_missing("users", column_name, column_type)
+
+    async def add_column_if_missing(self, table_name: str, column_name: str, column_type: str):
         if not self.connection:
             raise RuntimeError("SQLite database is not connected")
 
-        cursor = await self.connection.execute("PRAGMA table_info(users)")
+        cursor = await self.connection.execute(f"PRAGMA table_info({table_name})")
         columns = [row["name"] for row in await cursor.fetchall()]
         await cursor.close()
         if column_name not in columns:
-            await self.connection.execute(f"ALTER TABLE users ADD COLUMN {column_name} {column_type}")
+            await self.connection.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_type}")
             await self.connection.commit()
 
 

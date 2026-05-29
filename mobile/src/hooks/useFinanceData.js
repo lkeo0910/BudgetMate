@@ -91,10 +91,7 @@ function buildFinanceData(categoryRows, transactionRows) {
     };
   });
 
-  const categories = Array.from(categoryMap.values()).map((item) => ({
-    ...item,
-    assigned: item.assigned || item.activity
-  }));
+  const categories = Array.from(categoryMap.values());
 
   const income = transactions.filter((item) => item.type === "INCOME").reduce((total, item) => total + item.amount, 0);
   const expenses = transactions.filter((item) => item.type !== "INCOME").reduce((total, item) => total + item.amount, 0);
