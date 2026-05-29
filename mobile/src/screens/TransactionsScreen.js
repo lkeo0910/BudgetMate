@@ -93,7 +93,7 @@ export default function TransactionsScreen({ navigation }) {
 
     const payload = {
       vendor: form.vendor.trim(),
-      category_id: Number(form.categoryId),
+      category_id: /^\d+$/.test(String(form.categoryId)) ? Number(form.categoryId) : form.categoryId,
       amount: Number(form.amount),
       date: form.date,
       type: form.type,

@@ -10,12 +10,19 @@ export default {
       backgroundColor: "#f8fafc"
     },
     assetBundlePatterns: ["**/*"],
-    ios: {
-      supportsTablet: true
+    android: {
+      usesCleartextTraffic: true
     },
-    android: {},
+    ios: {
+      supportsTablet: true,
+      infoPlist: {
+        NSAppTransportSecurity: {
+          NSAllowsArbitraryLoads: true
+        }
+      }
+    },
     extra: {
-      apiUrl: process.env.EXPO_PUBLIC_API_URL || "http://192.168.11.107:8000/api/v1"
+      apiUrl: process.env.EXPO_PUBLIC_API_URL || "http://54.179.178.52/api/v1"
     }
   }
 };

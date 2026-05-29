@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, Text, View, useWindowDimensions } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import Svg, { Circle, Line, Path, Rect, Text as SvgText } from "react-native-svg";
 import { Card, EmptyState, SectionTitle } from "../components/Card";
@@ -17,6 +17,7 @@ const goals = [
 
 export default function DashboardScreen() {
   const { categories, error, hasData, loading, refresh, summary, transactions } = useFinanceData();
+  const { width } = useWindowDimensions();
   const [preset, setPreset] = useState("month");
   const [selectedForecast, setSelectedForecast] = useState(null);
 
@@ -82,7 +83,7 @@ export default function DashboardScreen() {
           </View>
           <Ionicons name="arrow-up-outline" color={colors.muted} size={20} />
         </View>
-        <ForecastChart points={forecastPoints} selected={selectedForecast} onSelect={setSelectedForecast} />
+        <ForecastChart points={forecastPoints} selected={selectedForecast} onSelect={setSelectedForecast} viewportWidth={width} />
         <Text style={styles.forecastText}>
           You will have <Text style={styles.forecastAmount}>{formatVND(dashboardSummary.projectedBalance)}</Text> by the end of the month
         </Text>
@@ -278,10 +279,10 @@ function Note({ icon, tone, text }) {
   );
 }
 
-function ForecastChart({ points, selected, onSelect }) {
-  const width = 330;
+function ForecastChart({ points, selected, onSelect, viewportWidth }) {
+  const width = Math.min(Math.max(viewportWidth - 72, 248), 360);
   const height = 206;
-  const left = 74;
+  const left = width < 290 ? 58 : 74;
   const right = 12;
   const top = 18;
   const bottom = 34;

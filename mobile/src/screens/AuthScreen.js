@@ -16,14 +16,26 @@ const initialRegister = {
 };
 
 function getAuthErrorMessage(err, fallback) {
-  const detail = err.response?.data?.detail;
-  if (typeof detail === "string") {
+  const detail = err.response?.data?.detail || err.response?.data?.message;
+  if (typeof detail === "string" && detail.trim()) {
     return detail;
   }
   if (Array.isArray(detail)) {
-    return detail.map((item) => item.msg).filter(Boolean).join(" ");
+    const list = detail.map((item) => item.msg).filter(Boolean).join(" ");
+    if (list) return list;
   }
-  return err.message || fallback;
+
+  const url = err.config?.baseURL ? `${err.config.baseURL}${err.config.url || ""}` : err.config?.url;
+  const status = err.response?.status;
+  const base = err.message || fallback;
+
+  if (status && url) {
+    return `${base} (${status} ${url})`;
+  }
+  if (url) {
+    return `${base} (${url})`;
+  }
+  return base;
 }
 
 export default function AuthScreen({ onAuthenticated }) {
@@ -69,8 +81,12 @@ export default function AuthScreen({ onAuthenticated }) {
       setError("Username must be at least 3 characters.");
       return;
     }
-    if (registerForm.password.length < 6) {
-      setError("Password must be at least 6 characters.");
+    if (!registerForm.email.trim() || !registerForm.email.includes("@")) {
+      setError("Enter a valid email address.");
+      return;
+    }
+    if (!/^(?=.*[A-Za-z])(?=.*\d)(?=.*[^A-Za-z\d]).{8,72}$/.test(registerForm.password)) {
+      setError("Password must be 8+ characters with a letter, number, and special character.");
       return;
     }
     if (registerForm.password !== registerForm.confirmPassword) {
@@ -82,12 +98,19 @@ export default function AuthScreen({ onAuthenticated }) {
     try {
       const result = await registerUser({
         username: registerForm.username.trim(),
-        email: registerForm.email.trim() || null,
+        email: registerForm.email.trim(),
         password: registerForm.password,
         phone_number: registerForm.phone_number.trim() || null,
-        avatar_url: registerForm.avatar_url.trim() || null
+        avatar_url: registerForm.avatar_url.trim() || null,
+        profile_avatar: registerForm.avatar_url.trim() || null
       });
-      onAuthenticated?.(result);
+      if (result?.access_token) {
+        onAuthenticated?.(result);
+      } else {
+        setMode("login");
+        setLoginForm((current) => ({ ...current, username: registerForm.username.trim() }));
+        setError(result?.message || "Account created. Sign in to continue.");
+      }
     } catch (err) {
       setError(getAuthErrorMessage(err, "Could not create account. Please try again."));
     } finally {

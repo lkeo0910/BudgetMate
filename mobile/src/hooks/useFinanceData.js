@@ -42,6 +42,12 @@ const emptySummary = {
   projectedBalance: 0
 };
 
+function asRows(value) {
+  if (Array.isArray(value)) return value;
+  if (Array.isArray(value?.items)) return value.items;
+  return [];
+}
+
 function normalizeType(value) {
   return String(value || "").toUpperCase();
 }
@@ -135,8 +141,8 @@ export function useFinanceData() {
       setState({
         loading: false,
         error: "",
-        categoryRows: categoryResponse.data,
-        transactionRows: transactionResponse.data
+        categoryRows: asRows(categoryResponse.data),
+        transactionRows: asRows(transactionResponse.data)
       });
     } catch (error) {
       setState({

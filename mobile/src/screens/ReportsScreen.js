@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import Svg, { Circle, G, Path, Rect, Text as SvgText } from "react-native-svg";
+import Svg, { Circle, G, Line, Path, Rect, Text as SvgText } from "react-native-svg";
 import { Card, EmptyState } from "../components/Card";
 import { Screen } from "../components/Layout";
 import { formatVND } from "../data/finance";
@@ -26,8 +26,11 @@ const modeOptions = [
 
 export default function ReportsScreen() {
   const { categories, error, hasData, loading, refresh, transactions } = useFinanceData();
+  const { width } = useWindowDimensions();
   const [range, setRange] = useState("1m");
   const [mode, setMode] = useState("overview");
+  const [selectedPoint, setSelectedPoint] = useState(null);
+  const chartWidth = Math.min(Math.max(width - 64, 256), 366);
 
   const rangeBounds = useMemo(() => getRangeBounds(range, transactions), [range, transactions]);
   const filteredTransactions = useMemo(() => filterTransactions(transactions, rangeBounds), [rangeBounds, transactions]);
@@ -61,9 +64,9 @@ export default function ReportsScreen() {
       </Card>
 
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.statsGrid}>
-        <SummaryStat label="Total Income" value={formatVND(totals.income)} icon="trending-up-outline" tone={colors.success} />
-        <SummaryStat label="Total Expenses" value={formatVND(totals.expense)} icon="trending-down-outline" tone={colors.rose} />
-        <SummaryStat label="Total Net Income" value={formatVND(totals.net)} icon="wallet-outline" tone={totals.net >= 0 ? colors.blue : colors.rose} />
+        <SummaryStat label="Total Income" value={formatCompactCurrency(totals.income)} icon="trending-up-outline" tone={colors.success} />
+        <SummaryStat label="Total Expenses" value={formatCompactCurrency(totals.expense)} icon="trending-down-outline" tone={colors.rose} />
+        <SummaryStat label="Net Income" value={formatCompactCurrency(totals.net)} icon="wallet-outline" tone={totals.net >= 0 ? colors.blue : colors.rose} />
         <SummaryStat label="Savings Rate" value={`${Math.round(totals.savingsRate)}%`} icon="leaf-outline" tone={totals.savingsRate >= 0 ? colors.success : colors.rose} />
       </ScrollView>
 
@@ -83,13 +86,22 @@ export default function ReportsScreen() {
         </View>
         <View style={styles.modeRow}>
           {modeOptions.map(([id, label]) => (
-            <Pressable key={id} style={[styles.modeButton, mode === id && styles.modeActive]} onPress={() => setMode(id)}>
-              <Text style={[styles.modeText, mode === id && styles.modeTextActive]}>{label}</Text>
-            </Pressable>
-          ))}
+              <Pressable key={id} style={[styles.modeButton, mode === id && styles.modeActive]} onPress={() => { setMode(id); setSelectedPoint(null); }}>
+                <Text style={[styles.modeText, mode === id && styles.modeTextActive]}>{label}</Text>
+              </Pressable>
+            ))}
         </View>
         {cashflowData.length ? (
-          <CashFlowChart data={cashflowData} mode={mode} totals={totals} expenseRows={expenseFlowRows} incomeRows={incomeRows} />
+          <CashFlowChart
+            data={cashflowData}
+            mode={mode}
+            totals={totals}
+            expenseRows={expenseFlowRows}
+            incomeRows={incomeRows}
+            chartWidth={chartWidth}
+            selectedPoint={selectedPoint}
+            onSelectPoint={setSelectedPoint}
+          />
         ) : (
           <Text style={styles.emptyInline}>No transaction history in this reporting range yet.</Text>
         )}
@@ -136,7 +148,7 @@ export default function ReportsScreen() {
       <Card>
         <Text style={styles.cardTitle}>Net Trend</Text>
         <Text style={styles.cardHelp}>A smoother view of how each period finished after expenses.</Text>
-        {cashflowData.length ? <NetTrend data={cashflowData} /> : <Text style={styles.emptyInline}>No trend data yet.</Text>}
+        {cashflowData.length ? <NetTrend data={cashflowData} chartWidth={chartWidth} /> : <Text style={styles.emptyInline}>No trend data yet.</Text>}
       </Card>
 
       <Card>
@@ -152,7 +164,7 @@ export default function ReportsScreen() {
 function SummaryStat({ label, value, icon, tone }) {
   return (
     <View style={styles.statCard}>
-      <View>
+      <View style={styles.statCopy}>
         <Text numberOfLines={1} style={styles.statLabel}>{label}</Text>
         <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.72} style={styles.statValue}>{value}</Text>
       </View>
@@ -163,198 +175,569 @@ function SummaryStat({ label, value, icon, tone }) {
   );
 }
 
-function CashFlowChart({ data, mode, totals, expenseRows, incomeRows }) {
+function CashFlowChart({ data, mode, totals, expenseRows, incomeRows, chartWidth, selectedPoint, onSelectPoint }) {
   if (mode === "flow") {
     return <FlowDiagram totals={totals} expenseRows={expenseRows} incomeRows={incomeRows} />;
   }
 
   if (mode === "trend") {
-    return <TrendLine data={data} height={220} />;
+    return <TrendLine data={data} height={230} width={chartWidth} selected={selectedPoint} onSelect={onSelectPoint} />;
   }
 
   if (mode === "overview") {
-    return <OverviewChart data={data} />;
+    return <OverviewChart data={data} width={chartWidth} selected={selectedPoint} onSelect={onSelectPoint} />;
   }
 
-  const maxValue = Math.max(...data.flatMap((item) => [item.income, item.expense]), 1);
+  return <BarChart data={data} width={chartWidth} selected={selectedPoint} onSelect={onSelectPoint} />;
+}
+
+function OverviewChart({ data, width, selected, onSelect }) {
+  const height = 244;
+  const contentWidth = getChartContentWidth(data.length, width);
+  const geometry = getChartGeometry(contentWidth, height);
+  const maxBar = Math.max(...data.flatMap((item) => [item.income, item.expense]), 1);
+  const netScale = getValueScale(data.map((item) => item.net), 4);
+  const labelIndexes = getLabelIndexes(data.length);
+  const points = getSeriesPoints(data, geometry, netScale, "net");
+  const selectedItem = selected || data[data.length - 1];
+  const path = buildPolylinePath(points);
 
   return (
-    <View style={styles.cashChart}>
-      {data.map((item) => (
-        <View key={item.label} style={styles.cashBucket}>
-          <View style={styles.barPair}>
-            <View style={[styles.cashBar, styles.incomeBar, { height: Math.max((item.income / maxValue) * 140, item.income ? 8 : 0) }]} />
-            <View style={[styles.cashBar, styles.expenseBar, { height: Math.max((item.expense / maxValue) * 140, item.expense ? 8 : 0) }]} />
-          </View>
-          <Text style={styles.cashLabel}>{item.label}</Text>
+    <View>
+      <ChartLegend />
+      <ScrollView horizontal={contentWidth > width} showsHorizontalScrollIndicator={false} style={styles.chartScroller}>
+        <View style={[styles.chartCanvas, { width: contentWidth, height }]}>
+          <Svg width={contentWidth} height={height} viewBox={`0 0 ${contentWidth} ${height}`}>
+            <ChartGrid geometry={geometry} scale={netScale} />
+            {data.map((item, index) => {
+              const x = points[index].x;
+              const barMaxHeight = geometry.chartHeight * 0.5;
+              const incomeHeight = item.income ? Math.max((item.income / maxBar) * barMaxHeight, 4) : 0;
+              const expenseHeight = item.expense ? Math.max((item.expense / maxBar) * barMaxHeight, 4) : 0;
+              const baseY = geometry.bottom - 2;
+              return (
+                <G key={`${item.key}-overview-bars`}>
+                  <Rect x={x - 11} y={baseY - incomeHeight} width="8" height={incomeHeight} rx="4" fill="#22c55e" />
+                  <Rect x={x + 3} y={baseY - expenseHeight} width="8" height={expenseHeight} rx="4" fill="#7c3aed" />
+                </G>
+              );
+            })}
+            {path ? <Path d={path} stroke="#0f766e" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" fill="none" /> : null}
+            {points.map((point) => (
+              <Circle
+                key={`${point.key}-overview-point`}
+                cx={point.x}
+                cy={point.y}
+                r={selectedItem?.key === point.key ? 6 : 4}
+                fill={point.net >= 0 ? colors.success : colors.rose}
+                stroke={colors.surface}
+                strokeWidth="2"
+              />
+            ))}
+            <AxisLabels geometry={geometry} scale={netScale} />
+            <BottomLabels data={data} points={points} labelIndexes={labelIndexes} bottom={geometry.bottom} />
+          </Svg>
+          {points.map((point) => (
+            <Pressable key={`${point.key}-overview-hit`} accessibilityLabel={`Show ${point.label}`} style={[styles.chartHitTarget, { left: point.x - 18, top: point.y - 18 }]} onPress={() => onSelect?.(point)} />
+          ))}
         </View>
-      ))}
+      </ScrollView>
+      <PointDetails point={selectedItem} />
     </View>
   );
 }
 
-function OverviewChart({ data }) {
-  const width = 300;
-  const height = 220;
-  const chartHeight = 150;
-  const maxBar = Math.max(...data.flatMap((item) => [item.income, item.expense]), 1);
-  const values = data.map((item) => item.net);
-  const maxNet = Math.max(...values, 0);
-  const minNet = Math.min(...values, 0);
-  const netSpan = Math.max(maxNet - minNet, 1);
-  const points = data.map((item, index) => {
-    const x = data.length === 1 ? width / 2 : 14 + (index / (data.length - 1)) * (width - 28);
-    const y = 24 + ((maxNet - item.net) / netSpan) * 132;
-    return { ...item, x, y };
-  });
+function BarChart({ data, width, selected, onSelect }) {
+  const height = 238;
+  const contentWidth = getChartContentWidth(data.length, width);
+  const geometry = getChartGeometry(contentWidth, height);
+  const scale = getValueScale(data.flatMap((item) => [item.income, item.expense]), 0);
+  const labelIndexes = getLabelIndexes(data.length);
+  const points = getSeriesPoints(data, geometry, scale, "income");
+  const selectedItem = selected || data[data.length - 1];
 
   return (
-    <View style={[styles.overviewChart, { width, height }]}>
-      <View style={[styles.zeroLine, { top: 24 + (maxNet / netSpan) * 132 }]} />
-      {data.map((item, index) => {
-        const x = points[index].x;
-        return (
-          <View key={`${item.label}-bars`} style={[styles.overviewBarPair, { left: x - 9 }]}>
-            <View style={[styles.cashBar, styles.incomeBar, { height: Math.max((item.income / maxBar) * chartHeight, item.income ? 8 : 0) }]} />
-            <View style={[styles.cashBar, styles.expenseBar, { height: Math.max((item.expense / maxBar) * chartHeight, item.expense ? 8 : 0) }]} />
-          </View>
-        );
-      })}
-      <LineSegments points={points} />
-      {points.map((point) => (
-        <View key={`${point.key || point.label}-overview-dot`} style={[styles.linePoint, styles.netNegative, { left: point.x - 4, top: point.y - 4 }]} />
-      ))}
-      <View style={styles.lineLabels}>
-        {points.slice(0, 6).map((point) => (
-          <Text key={`${point.label}-overview-label`} style={styles.cashLabel}>{point.label}</Text>
-        ))}
-      </View>
+    <View>
+      <ChartLegend />
+      <ScrollView horizontal={contentWidth > width} showsHorizontalScrollIndicator={false} style={styles.chartScroller}>
+        <View style={[styles.chartCanvas, { width: contentWidth, height }]}>
+          <Svg width={contentWidth} height={height} viewBox={`0 0 ${contentWidth} ${height}`}>
+            <ChartGrid geometry={geometry} scale={scale} />
+            {data.map((item, index) => {
+              const x = points[index].x;
+              const incomeHeight = item.income ? Math.max((item.income / scale.max) * geometry.chartHeight, 5) : 0;
+              const expenseHeight = item.expense ? Math.max((item.expense / scale.max) * geometry.chartHeight, 5) : 0;
+              return (
+                <G key={`${item.key}-bars`}>
+                  <Rect x={x - 13} y={geometry.bottom - incomeHeight} width="11" height={incomeHeight} rx="5" fill="#22c55e" />
+                  <Rect x={x + 3} y={geometry.bottom - expenseHeight} width="11" height={expenseHeight} rx="5" fill="#7c3aed" />
+                  {selectedItem?.key === item.key ? <Circle cx={x} cy={geometry.top - 3} r="4" fill={colors.ink} /> : null}
+                </G>
+              );
+            })}
+            <AxisLabels geometry={geometry} scale={scale} />
+            <BottomLabels data={data} points={points} labelIndexes={labelIndexes} bottom={geometry.bottom} />
+          </Svg>
+          {points.map((point) => (
+            <Pressable key={`${point.key}-bar-hit`} accessibilityLabel={`Show ${point.label}`} style={[styles.barHitTarget, { left: point.x - 20, top: geometry.top }]} onPress={() => onSelect?.(point)} />
+          ))}
+        </View>
+      </ScrollView>
+      <PointDetails point={selectedItem} />
     </View>
   );
+}
+
+function formatCompactCurrency(value) {
+  if (!Number.isFinite(value)) return '0 đ';
+  const abs = Math.abs(value);
+  if (abs >= 1_000_000) return `${(value / 1_000_000).toFixed(abs % 1_000_000 === 0 ? 0 : 1)}M đ`;
+  if (abs >= 1_000) return `${(value / 1_000).toFixed(abs % 1_000 === 0 ? 0 : 1)}k đ`;
+  return `${value} đ`;
+}
+
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value));
+}
+
+function buildFlowModel(totals, expenseRows, incomeRows) {
+  const maxIncomeNodes = 3;
+  const maxOutputNodes = 6;
+  const sortedIncome = [...incomeRows].sort((a, b) => b.value - a.value);
+  const sortedExpense = [...expenseRows].sort((a, b) => b.value - a.value);
+
+  const incomePrimary = sortedIncome.slice(0, maxIncomeNodes).map((entry) => ({ name: entry.name, value: entry.value, fill: entry.color || '#38bdf8' }));
+  const otherIncomeValue = sortedIncome.slice(maxIncomeNodes).reduce((sum, entry) => sum + entry.value, 0);
+  if (otherIncomeValue > 0) {
+    incomePrimary.push({ name: 'Other Income', value: otherIncomeValue, fill: '#38bdf8' });
+  }
+
+  const deficitValue = Math.max(totals.expense - totals.income, 0);
+  if (deficitValue > 0) {
+    incomePrimary.push({ name: 'Deficit Funding', value: deficitValue, fill: '#f59e0b' });
+  }
+
+  const outputs = [];
+  if (totals.net > 0) {
+    outputs.push({ name: 'Savings', value: totals.net, fill: '#16a34a' });
+  }
+
+  const expensePrimary = sortedExpense.slice(0, 4).map((entry) => ({ name: entry.name, value: entry.value, fill: entry.color }));
+  const otherExpenseValue = sortedExpense.slice(4).reduce((sum, entry) => sum + entry.value, 0);
+  expensePrimary.forEach((entry) => outputs.push(entry));
+  if (otherExpenseValue > 0) {
+    outputs.push({ name: 'Other Expenses', value: otherExpenseValue, fill: '#94a3b8' });
+  }
+
+  if (outputs.length > maxOutputNodes) {
+    const savingsNode = outputs.find((item) => item.name === 'Savings');
+    const expenseNodes = outputs.filter((item) => item.name !== 'Savings');
+    const reservedSlots = maxOutputNodes - (savingsNode ? 1 : 0) - 1;
+    const visibleExpenses = expenseNodes.slice(0, reservedSlots);
+    const collapsedValue = expenseNodes.slice(reservedSlots).reduce((sum, item) => sum + item.value, 0);
+    const collapsed = { name: 'Other Expenses', value: collapsedValue, fill: '#94a3b8' };
+    const nextOutputs = [];
+    if (savingsNode) nextOutputs.push(savingsNode);
+    nextOutputs.push(...visibleExpenses);
+    nextOutputs.push(collapsed);
+    outputs.length = 0;
+    outputs.push(...nextOutputs);
+  }
+
+  const incomeNodes = incomePrimary.map((entry) => ({ ...entry, fill: entry.fill || '#38bdf8' }));
+  const outputNodes = outputs.map((entry) => ({ ...entry, fill: entry.fill || '#94a3b8' }));
+
+  const links = [
+    ...incomeNodes.map((entry) => ({ source: entry.name, target: 'Available Cash', value: entry.value, color: '#93c5fd' })),
+    ...outputNodes.map((entry) => ({ source: 'Available Cash', target: entry.name, value: entry.value, color: entry.fill }))
+  ];
+
+  return { incomeNodes, outputNodes, links, availableValue: totals.income + deficitValue };
+}
+
+function layoutNodesIntoSlots(nodes, x, top, height, minHeight, maxHeight) {
+  const availableHeight = Math.max(height, nodes.length * minHeight);
+  const slotHeight = availableHeight / Math.max(nodes.length, 1);
+  const maxValue = Math.max(...nodes.map((node) => node.value), 1);
+
+  return nodes.map((node, index) => {
+    const center = top + slotHeight * index + slotHeight / 2;
+    const rawHeight = (node.value / maxValue) * slotHeight * 0.72;
+    const heightValue = clamp(rawHeight, minHeight, maxHeight);
+    const y = center - heightValue / 2;
+    return { ...node, x, y, height: heightValue, center };
+  });
+}
+
+function adjustLabelPositions(labels, minDistance, minY, maxY) {
+  const sorted = [...labels].sort((a, b) => a.y - b.y);
+  for (let index = 1; index < sorted.length; index += 1) {
+    const previous = sorted[index - 1];
+    const current = sorted[index];
+    const delta = current.y - previous.y;
+    if (delta < minDistance) {
+      const shift = minDistance - delta;
+      current.y = clamp(current.y + shift, minY, maxY);
+    }
+  }
+  return sorted;
+}
+
+function flowBandPath(fromX, fromTopY, fromBottomY, toX, toTopY, toBottomY, curve) {
+  return [
+    `M${fromX},${fromTopY}`,
+    `C${fromX + curve},${fromTopY} ${toX - curve},${toTopY} ${toX},${toTopY}`,
+    `L${toX},${toBottomY}`,
+    `C${toX - curve},${toBottomY} ${fromX + curve},${fromBottomY} ${fromX},${fromBottomY}`,
+    "Z"
+  ].join(" ");
 }
 
 function FlowDiagram({ totals, expenseRows, incomeRows }) {
+  const chartWidth = 720;
+  const chartHeight = 370;
+  const leftX = 18;
+  const hubX = 318;
+  const rightX = 568;
+  const nodeWidth = 14;
+  const topPadding = 28;
+  const bottomPadding = 28;
+  const hubTop = topPadding + 8;
+  const hubHeight = chartHeight - topPadding - bottomPadding - 16;
+  const minNodeHeight = 14;
+  const maxNodeHeight = 70;
+  const minLinkThickness = 6;
+  const maxLinkThickness = 80;
+  const curveIncoming = 92;
+  const curveOutgoing = 104;
+
   const flow = buildFlowModel(totals, expenseRows, incomeRows);
-  const chartWidth = 760;
-  const chartHeight = 420;
-  const nodeWidth = 16;
-  const leftX = 122;
-  const hubX = 370;
-  const rightX = 626;
-  const hub = { x: hubX, y: 90, height: 240, center: 210 };
-  const maxLinkValue = Math.max(...flow.links.map((item) => item.value), 1);
-  const incomeNodes = layoutFlowNodes(flow.incomeNodes, leftX, 70, 270);
-  const outputNodes = layoutFlowNodes(flow.outputNodes, rightX, 48, 324);
-  const nodeByName = new Map([...incomeNodes, ...outputNodes].map((item) => [item.name, item]));
+  const incomingLinks = flow.links.filter((link) => link.target === 'Available Cash');
+  const outgoingLinks = flow.links.filter((link) => link.source === 'Available Cash');
+
+  const incomeNodes = layoutNodesIntoSlots(flow.incomeNodes, leftX, topPadding, chartHeight - topPadding - bottomPadding, minNodeHeight, maxNodeHeight);
+  const outputNodes = layoutNodesIntoSlots(flow.outputNodes, rightX, topPadding, chartHeight - topPadding - bottomPadding, minNodeHeight, maxNodeHeight);
+  const nodeByName = new Map([...incomeNodes, ...outputNodes].map((node) => [node.name, node]));
+
+  const hubInnerTop = hubTop + 12;
+  const hubInnerBottom = hubTop + hubHeight - 12;
+  const availableHubHeight = Math.max(hubInnerBottom - hubInnerTop, 40);
+
+  function computeLinkThicknesses(links) {
+    const totalValue = Math.max(links.reduce((sum, item) => sum + item.value, 0), 1);
+    let thicknesses = links.map((item) => clamp((item.value / totalValue) * availableHubHeight, minLinkThickness, maxLinkThickness));
+    const totalThickness = thicknesses.reduce((sum, value) => sum + value, 0);
+    if (totalThickness > availableHubHeight) {
+      const scale = availableHubHeight / totalThickness;
+      thicknesses = thicknesses.map((t) => Math.max(minLinkThickness, t * scale));
+    }
+    return thicknesses;
+  }
+
+  const incomingThicknesses = computeLinkThicknesses(incomingLinks);
+  const outgoingThicknesses = computeLinkThicknesses(outgoingLinks);
+
+  let incomingCursor = hubInnerTop;
+  let outgoingCursor = hubInnerTop;
+
+  const incomeLabelX = leftX + nodeWidth + 12;
+  const hubLabelX = hubX + nodeWidth + 22;
+  const outputLabelX = rightX + nodeWidth + 12;
+
+  const outputLabels = adjustLabelPositions(
+    outputNodes.map((node) => ({ name: node.name, y: node.center })),
+    38,
+    topPadding + 12,
+    chartHeight - bottomPadding - 12
+  );
+  const outputLabelYByName = new Map(outputLabels.map((label) => [label.name, label.y]));
 
   return (
-    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.flowScroller} contentContainerStyle={styles.flowScrollContent}>
-      <Svg width={chartWidth} height={chartHeight} viewBox={`0 0 ${chartWidth} ${chartHeight}`}>
-        <Rect x="0" y="0" width={chartWidth} height={chartHeight} rx="18" fill="#ecfeff" />
-        {flow.links.map((link, index) => {
-          const fromNode = nodeByName.get(link.source);
-          const toNode = link.target === "Available Cash" ? hub : nodeByName.get(link.target);
-          const fromX = link.source === "Available Cash" ? hubX + nodeWidth : (fromNode?.x || leftX) + nodeWidth;
-          const fromY = link.source === "Available Cash" ? toNode?.center || hub.center : fromNode?.center || hub.center;
-          const toX = link.target === "Available Cash" ? hubX : toNode?.x || rightX;
-          const toY = link.target === "Available Cash" ? fromY : toNode?.center || hub.center;
-          const curve = link.target === "Available Cash" ? 92 : 118;
-          const strokeWidth = Math.max((link.value / maxLinkValue) * 58, 8);
-          return (
-            <Path
-              key={`${link.source}-${link.target}-${index}`}
-              d={`M${fromX},${fromY} C${fromX + curve},${fromY} ${toX - curve},${toY} ${toX},${toY}`}
-              stroke={link.color}
-              strokeOpacity="0.38"
-              strokeWidth={strokeWidth}
-              strokeLinecap="round"
-              fill="none"
-            />
-          );
-        })}
-        {incomeNodes.map((node) => (
-          <FlowNodeSvg key={node.name} node={node} width={nodeWidth} labelSide="right" />
-        ))}
-        <Rect x={hubX} y={hub.y} width={nodeWidth} height={hub.height} rx="5" fill="#0f172a" />
-        <SvgText x={hubX + 24} y={hub.center - 6} fontSize="13" fontWeight="800" fill="#0f172a">Available Cash</SvgText>
-        <SvgText x={hubX + 24} y={hub.center + 13} fontSize="12" fill="#334155">{formatVND(flow.availableValue)}</SvgText>
-        {outputNodes.map((node) => (
-          <FlowNodeSvg key={node.name} node={node} width={nodeWidth} labelSide="left" />
-        ))}
-      </Svg>
-    </ScrollView>
+    <>
+      <Text style={styles.flowHint}>Swipe to view full cash flow</Text>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.flowScroller} contentContainerStyle={[styles.flowScrollContent, { width: chartWidth }]}>
+        <Svg width={chartWidth} height={chartHeight} viewBox={`0 0 ${chartWidth} ${chartHeight}`}>
+          <Rect x="0" y="0" width={chartWidth} height={chartHeight} rx="18" fill="#ecfeff" />
+
+          {incomingLinks.map((link, index) => {
+            const thickness = incomingThicknesses[index] || minLinkThickness;
+            const top = incomingCursor;
+            const bottom = top + thickness;
+            incomingCursor = bottom;
+            const fromNode = nodeByName.get(link.source) || { x: leftX, center: topPadding + 32 };
+            return (
+              <Path
+                key={`incoming-${index}`}
+                d={flowBandPath(
+                  fromNode.x + nodeWidth,
+                  fromNode.center - thickness / 2,
+                  fromNode.center + thickness / 2,
+                  hubX,
+                  top,
+                  bottom,
+                  curveIncoming
+                )}
+                fill={link.source === "Deficit Funding" ? "#fbbf24" : link.color}
+                fillOpacity="0.38"
+              />
+            );
+          })}
+
+          {outgoingLinks.map((link, index) => {
+            const thickness = outgoingThicknesses[index] || minLinkThickness;
+            const top = outgoingCursor;
+            const bottom = top + thickness;
+            outgoingCursor = bottom;
+            const toNode = nodeByName.get(link.target) || { x: rightX, center: hubTop + hubHeight / 2 };
+            return (
+              <Path
+                key={`outgoing-${index}`}
+                d={flowBandPath(
+                  hubX + nodeWidth,
+                  top,
+                  bottom,
+                  toNode.x,
+                  toNode.center - thickness / 2,
+                  toNode.center + thickness / 2,
+                  curveOutgoing
+                )}
+                fill={link.color}
+                fillOpacity="0.42"
+              />
+            );
+          })}
+
+          {incomeNodes.map((node) => (
+            <G key={`income-node-${node.name}`}>
+              <Rect x={node.x} y={node.y} width={nodeWidth} height={node.height} rx="7" fill={node.fill} />
+              <SvgText x={incomeLabelX} y={node.center - 4} fontSize="12" fontWeight="800" fill="#0f172a" textAnchor="start">
+                {truncateLabel(node.name, 18)}
+              </SvgText>
+              <SvgText x={incomeLabelX} y={node.center + 12} fontSize="11" fill="#334155" textAnchor="start">
+                {formatCompactCurrency(node.value)}
+              </SvgText>
+            </G>
+          ))}
+
+          <Rect x={hubX} y={hubTop} width={nodeWidth} height={hubHeight} rx="8" fill="#0f172a" />
+          <SvgText x={hubLabelX} y={hubTop + hubHeight / 2 - 6} fontSize="12" fontWeight="900" fill="#0f172a" textAnchor="start">
+            Available Cash
+          </SvgText>
+          <SvgText x={hubLabelX} y={hubTop + hubHeight / 2 + 10} fontSize="11" fill="#334155" textAnchor="start">
+            {formatCompactCurrency(flow.availableValue)}
+          </SvgText>
+
+          {outputNodes.map((node) => (
+            <G key={`output-node-${node.name}`}>
+              <Rect x={node.x} y={node.y} width={nodeWidth} height={node.height} rx="7" fill={node.fill} />
+              <SvgText x={outputLabelX} y={(outputLabelYByName.get(node.name) ?? node.center) - 4} fontSize="12" fontWeight="800" fill="#0f172a" textAnchor="start">
+                {truncateLabel(node.name, 18)}
+              </SvgText>
+              <SvgText x={outputLabelX} y={(outputLabelYByName.get(node.name) ?? node.center) + 12} fontSize="11" fill="#334155" textAnchor="start">
+                {formatCompactCurrency(node.value)}
+              </SvgText>
+            </G>
+          ))}
+        </Svg>
+      </ScrollView>
+    </>
   );
 }
 
-function FlowNodeSvg({ node, width, labelSide }) {
-  const labelX = labelSide === "left" ? node.x - 8 : node.x + width + 8;
-  const anchor = labelSide === "left" ? "end" : "start";
+function TrendLine({ data, height = 230, width = 300, selected, onSelect }) {
+  const contentWidth = getChartContentWidth(data.length, width);
+  const geometry = getChartGeometry(contentWidth, height);
+  const scale = getValueScale(data.map((item) => item.net), 4);
+  const points = getSeriesPoints(data, geometry, scale, "net");
+  const path = buildPolylinePath(points);
+  const labelIndexes = getLabelIndexes(data.length);
+  const selectedItem = selected || data[data.length - 1];
+
+  return (
+    <View>
+      <ScrollView horizontal={contentWidth > width} showsHorizontalScrollIndicator={false} style={styles.chartScroller}>
+        <View style={[styles.chartCanvas, { width: contentWidth, height }]}>
+          <Svg width={contentWidth} height={height} viewBox={`0 0 ${contentWidth} ${height}`}>
+            <ChartGrid geometry={geometry} scale={scale} />
+            {path ? <Path d={path} stroke="#0f766e" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" fill="none" /> : null}
+            {points.map((point) => (
+              <Circle
+                key={`${point.key}-trend-point`}
+                cx={point.x}
+                cy={point.y}
+                r={selectedItem?.key === point.key ? 7 : 5}
+                fill={point.net >= 0 ? colors.success : colors.rose}
+                stroke={colors.surface}
+                strokeWidth="2"
+              />
+            ))}
+            <AxisLabels geometry={geometry} scale={scale} />
+            <BottomLabels data={data} points={points} labelIndexes={labelIndexes} bottom={geometry.bottom} />
+          </Svg>
+          {points.map((point) => (
+            <Pressable key={`${point.key}-trend-hit`} accessibilityLabel={`Show ${point.label}`} style={[styles.chartHitTarget, { left: point.x - 18, top: point.y - 18 }]} onPress={() => onSelect?.(point)} />
+          ))}
+        </View>
+      </ScrollView>
+      <PointDetails point={selectedItem} />
+    </View>
+  );
+}
+
+function getChartGeometry(width, height) {
+  const left = 50;
+  const right = 14;
+  const top = 18;
+  const bottom = height - 44;
+  return {
+    left,
+    right,
+    top,
+    bottom,
+    width,
+    height,
+    chartWidth: width - left - right,
+    chartHeight: bottom - top
+  };
+}
+
+function getChartContentWidth(pointCount, width) {
+  if (pointCount <= 8) return width;
+  return Math.max(width, pointCount * 44 + 58);
+}
+
+function getValueScale(values, paddingPercent = 0) {
+  const finiteValues = values.filter(Number.isFinite);
+  const rawMax = Math.max(...finiteValues, 0);
+  const rawMin = Math.min(...finiteValues, 0);
+  const span = Math.max(rawMax - rawMin, 1);
+  const padding = span * (paddingPercent / 100);
+  const max = rawMax + padding;
+  const min = rawMin - padding;
+  return { min, max, span: Math.max(max - min, 1) };
+}
+
+function getSeriesPoints(data, geometry, scale, key) {
+  return data.map((item, index) => {
+    const x = data.length === 1
+      ? geometry.left + geometry.chartWidth / 2
+      : geometry.left + (index / (data.length - 1)) * geometry.chartWidth;
+    const y = geometry.top + ((scale.max - item[key]) / scale.span) * geometry.chartHeight;
+    return { ...item, x, y };
+  });
+}
+
+function buildPolylinePath(points) {
+  if (!points.length) return "";
+  return points.map((point, index) => `${index === 0 ? "M" : "L"}${point.x},${point.y}`).join(" ");
+}
+
+function getLabelIndexes(length) {
+  if (length <= 1) return [0];
+  if (length <= 4) return Array.from({ length }, (_, index) => index);
+  if (length > 8) return [0];
+  const middle = Math.floor((length - 1) / 2);
+  return [0, middle];
+}
+
+function ChartGrid({ geometry, scale }) {
+  const zeroY = geometry.top + ((scale.max - 0) / scale.span) * geometry.chartHeight;
+  const clampedZeroY = clamp(zeroY, geometry.top, geometry.bottom);
   return (
     <G>
-      <Rect x={node.x} y={node.y} width={width} height={node.height} rx="5" fill={node.fill} />
-      <SvgText x={labelX} y={node.center - 5} textAnchor={anchor} fontSize="13" fontWeight="800" fill="#0f172a">
-        {truncateLabel(node.name, 18)}
-      </SvgText>
-      <SvgText x={labelX} y={node.center + 14} textAnchor={anchor} fontSize="12" fill="#334155">
-        {formatVND(node.value)}
-      </SvgText>
+      <Rect x={geometry.left} y={geometry.top} width={geometry.chartWidth} height={geometry.chartHeight} rx="10" fill="#f8fafc" />
+      {[0, 0.5, 1].map((ratio) => {
+        const y = geometry.top + ratio * geometry.chartHeight;
+        return <Line key={`grid-${ratio}`} x1={geometry.left} x2={geometry.width - geometry.right} y1={y} y2={y} stroke="#e2e8f0" strokeWidth="1" />;
+      })}
+      <Line x1={geometry.left} x2={geometry.width - geometry.right} y1={clampedZeroY} y2={clampedZeroY} stroke="#93c5fd" strokeWidth="1.5" strokeDasharray="4 4" />
+      <Line x1={geometry.left} x2={geometry.left} y1={geometry.top} y2={geometry.bottom} stroke="#cbd5e1" strokeWidth="1.5" />
+      <Line x1={geometry.left} x2={geometry.width - geometry.right} y1={geometry.bottom} y2={geometry.bottom} stroke="#cbd5e1" strokeWidth="1.5" />
     </G>
   );
 }
 
-function TrendLine({ data, height = 190 }) {
-  const width = 300;
-  const values = data.map((item) => item.net);
-  const max = Math.max(...values, 0);
-  const min = Math.min(...values, 0);
-  const span = Math.max(max - min, 1);
-  const points = data.map((item, index) => {
-    const x = data.length === 1 ? width / 2 : (index / (data.length - 1)) * width;
-    const y = 18 + ((max - item.net) / span) * (height - 50);
-    return { ...item, x, y };
-  });
-
+function AxisLabels({ geometry, scale }) {
+  const values = [scale.max, (scale.max + scale.min) / 2, scale.min];
   return (
-    <View style={[styles.lineChart, { height }]}>
-      <View style={[styles.zeroLine, { top: 18 + (max / span) * (height - 50) }]} />
-      <LineSegments points={points} />
-      {points.map((point) => (
-        <View key={point.key || point.label} style={[styles.linePoint, point.net >= 0 ? styles.netPositive : styles.netNegative, { left: point.x - 4, top: point.y - 4 }]} />
-      ))}
-      <View style={styles.lineLabels}>
-        {points.slice(0, 6).map((point) => (
-          <Text key={`${point.label}-label`} style={styles.cashLabel}>{point.label}</Text>
-        ))}
+    <G>
+      {values.map((value, index) => {
+        const y = index === 0 ? geometry.top + 4 : index === 1 ? geometry.top + geometry.chartHeight / 2 + 4 : geometry.bottom;
+        return (
+          <SvgText key={`axis-${index}`} x={geometry.left - 6} y={y} fontSize="10" fontWeight="800" fill="#64748b" textAnchor="end">
+            {formatCompactCurrency(value)}
+          </SvgText>
+        );
+      })}
+    </G>
+  );
+}
+
+function BottomLabels({ data, points, labelIndexes, bottom }) {
+  return (
+    <G>
+      {labelIndexes.map((index) => {
+        const point = points[index];
+        const item = data[index];
+        if (!point || !item) return null;
+        const isFirst = index === 0;
+        const isLast = index === data.length - 1;
+        return (
+          <SvgText
+            key={`${item.key}-bottom-label`}
+            x={point.x}
+            y={bottom + 24}
+            fontSize="10"
+            fontWeight="800"
+            fill="#64748b"
+            textAnchor={isFirst ? "start" : isLast ? "end" : "middle"}
+          >
+            {shortDateLabel(item.label)}
+          </SvgText>
+        );
+      })}
+    </G>
+  );
+}
+
+function ChartLegend() {
+  return (
+    <View style={styles.chartLegend}>
+      <View style={styles.legendItem}>
+        <View style={[styles.legendDot, { backgroundColor: "#22c55e" }]} />
+        <Text style={styles.legendText}>Income</Text>
+      </View>
+      <View style={styles.legendItem}>
+        <View style={[styles.legendDot, { backgroundColor: "#7c3aed" }]} />
+        <Text style={styles.legendText}>Expenses</Text>
+      </View>
+      <View style={styles.legendItem}>
+        <View style={[styles.legendDot, { backgroundColor: colors.rose }]} />
+        <Text style={styles.legendText}>Net</Text>
       </View>
     </View>
   );
 }
 
-function LineSegments({ points }) {
+function PointDetails({ point }) {
+  if (!point) return null;
   return (
-    <>
-      {points.slice(0, -1).map((point, index) => {
-        const next = points[index + 1];
-        const dx = next.x - point.x;
-        const dy = next.y - point.y;
-        const length = Math.sqrt(dx * dx + dy * dy);
-        const angle = `${Math.atan2(dy, dx)}rad`;
-        return (
-          <View
-            key={`${point.label}-${next.label}-segment`}
-            style={[
-              styles.lineSegment,
-              {
-                width: length,
-                left: point.x + dx / 2 - length / 2,
-                top: point.y + dy / 2,
-                transform: [{ rotate: angle }]
-              }
-            ]}
-          />
-        );
-      })}
-    </>
+    <View style={styles.pointDetails}>
+      <View style={styles.pointHeader}>
+        <Text style={styles.pointLabel}>{point.label}</Text>
+        <Text style={[styles.pointNet, point.net >= 0 ? styles.income : styles.expense]}>{formatVND(point.net)}</Text>
+      </View>
+      <View style={styles.pointGrid}>
+        <View style={styles.pointMetric}>
+          <Text style={styles.pointMetricLabel}>Income</Text>
+          <Text style={styles.pointMetricValue}>{formatCompactCurrency(point.income)}</Text>
+        </View>
+        <View style={styles.pointMetric}>
+          <Text style={styles.pointMetricLabel}>Expense</Text>
+          <Text style={styles.pointMetricValue}>{formatCompactCurrency(point.expense)}</Text>
+        </View>
+      </View>
+    </View>
   );
 }
 
@@ -400,8 +783,9 @@ function ReportRow({ item }) {
   );
 }
 
-function NetTrend({ data }) {
-  return <TrendLine data={data} height={190} />;
+function NetTrend({ data, chartWidth }) {
+  const [selected, setSelected] = useState(null);
+  return <TrendLine data={data} height={218} width={chartWidth} selected={selected} onSelect={setSelected} />;
 }
 
 function Highlight({ title, item, positive }) {
@@ -459,60 +843,6 @@ function groupByCategory(transactions, categories, type, limit = Infinity) {
     .map(([name, value], index) => ({ name, value, color: type === "EXPENSE" ? reportColors[index % reportColors.length] : categories.find((item) => item.name === name)?.color || "#10b981" }));
 }
 
-function buildFlowModel(totals, expenseRows, incomeRows) {
-  const expenseEntries = expenseRows.length > 5
-    ? [
-        ...expenseRows.slice(0, 4),
-        {
-          name: "Other Expenses",
-          value: expenseRows.slice(4).reduce((sum, item) => sum + item.value, 0),
-          color: "#94a3b8"
-        }
-      ]
-    : expenseRows;
-  const deficitValue = Math.max(totals.expense - totals.income, 0);
-  const incomeNodes = [
-    ...incomeRows.map((entry) => ({ name: entry.name, value: entry.value, fill: "#38bdf8" })),
-    ...(deficitValue > 0 ? [{ name: "Deficit Funding", value: deficitValue, fill: "#f59e0b" }] : [])
-  ];
-  const outputNodes = [
-    ...(totals.net > 0 ? [{ name: "Savings", value: totals.net, fill: "#16a34a" }] : []),
-    ...expenseEntries.map((entry) => ({ name: entry.name, value: entry.value, fill: entry.color }))
-  ];
-  const links = [
-    ...incomeRows.map((entry) => ({ source: entry.name, target: "Available Cash", value: entry.value, color: "#93c5fd" })),
-    ...(deficitValue > 0 ? [{ source: "Deficit Funding", target: "Available Cash", value: deficitValue, color: "#fbbf24" }] : []),
-    ...(totals.net > 0 ? [{ source: "Available Cash", target: "Savings", value: totals.net, color: "#86efac" }] : []),
-    ...expenseEntries.map((entry) => ({ source: "Available Cash", target: entry.name, value: entry.value, color: entry.color }))
-  ];
-
-  if (!incomeNodes.length && !outputNodes.length) {
-    return {
-      incomeNodes: [{ name: "Income", value: 0, fill: "#38bdf8" }],
-      outputNodes: [{ name: "No activity", value: 0, fill: "#94a3b8" }],
-      links: [],
-      availableValue: 0
-    };
-  }
-
-  return { incomeNodes, outputNodes, links, availableValue: totals.income + deficitValue };
-}
-
-function layoutFlowNodes(nodes, x, top, height) {
-  const count = Math.max(nodes.length, 1);
-  const gap = count > 1 ? 12 : 0;
-  const availableHeight = height - gap * (count - 1);
-  const totalValue = nodes.reduce((sum, item) => sum + item.value, 0) || 1;
-  let cursor = top;
-  return nodes.map((item) => {
-    const weightedHeight = (item.value / totalValue) * availableHeight;
-    const nodeHeight = Math.min(Math.max(weightedHeight, item.value ? 18 : 12), 78);
-    const node = { ...item, x, y: cursor, height: nodeHeight, center: cursor + nodeHeight / 2 };
-    cursor += nodeHeight + gap;
-    return node;
-  });
-}
-
 function describeArc(cx, cy, radius, startAngle, endAngle) {
   if (endAngle <= startAngle) return "";
   const start = polarToCartesian(cx, cy, radius, endAngle);
@@ -531,6 +861,10 @@ function polarToCartesian(cx, cy, radius, angleInDegrees) {
 
 function truncateLabel(label, maxLength) {
   return label.length <= maxLength ? label : `${label.slice(0, maxLength - 1)}...`;
+}
+
+function shortDateLabel(label) {
+  return String(label).replace(/, 202\d$/, "").replace(/ 202\d$/, "");
 }
 
 function getRangeBounds(range, transactions) {
@@ -612,10 +946,11 @@ const styles = StyleSheet.create({
   rangeText: { color: colors.ink, fontWeight: "900", fontSize: 12 },
   rangeTextActive: { color: colors.surface },
   statsGrid: { paddingHorizontal: 16, paddingTop: 14, gap: 8 },
-  statCard: { width: 132, minHeight: 76, borderRadius: 12, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, padding: 10, flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 7 },
+  statCard: { width: 148, minHeight: 82, borderRadius: 12, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, padding: 10, flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 8 },
+  statCopy: { flex: 1, minWidth: 0 },
   statLabel: { color: colors.muted, fontWeight: "800", fontSize: 10 },
-  statValue: { color: colors.ink, fontSize: 15, fontWeight: "900", marginTop: 6 },
-  statIcon: { width: 30, height: 30, borderRadius: 10, alignItems: "center", justifyContent: "center" },
+  statValue: { color: colors.ink, fontSize: 16, fontWeight: "900", marginTop: 7 },
+  statIcon: { width: 32, height: 32, borderRadius: 10, alignItems: "center", justifyContent: "center", flexShrink: 0 },
   sectionHeader: { gap: 12 },
   titleRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   cardTitle: { color: colors.ink, fontSize: 20, fontWeight: "900" },
@@ -628,6 +963,11 @@ const styles = StyleSheet.create({
   modeActive: { backgroundColor: colors.ink, borderColor: colors.ink },
   modeText: { color: colors.text, fontWeight: "800", fontSize: 11 },
   modeTextActive: { color: colors.surface },
+  chartScroller: { marginTop: 10, borderRadius: 14, backgroundColor: "#f8fafc" },
+  chartCanvas: { position: "relative" },
+  chartHitTarget: { position: "absolute", width: 36, height: 36, borderRadius: 18 },
+  barHitTarget: { position: "absolute", width: 40, height: 160, borderRadius: 14 },
+  chartLegend: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginTop: 14 },
   cashChart: { height: 220, flexDirection: "row", alignItems: "flex-end", gap: 8, marginTop: 18, borderLeftWidth: 1, borderBottomWidth: 1, borderColor: colors.border, paddingHorizontal: 8 },
   cashBucket: { flex: 1, height: 200, alignItems: "center", justifyContent: "flex-end", position: "relative" },
   barPair: { flexDirection: "row", alignItems: "flex-end", gap: 3 },
@@ -640,27 +980,22 @@ const styles = StyleSheet.create({
   cashLabel: { color: colors.muted, fontSize: 9, fontWeight: "800", marginTop: 8 },
   overviewChart: { alignSelf: "center", marginTop: 18, borderLeftWidth: 1, borderBottomWidth: 1, borderColor: colors.border, position: "relative", overflow: "hidden" },
   overviewBarPair: { position: "absolute", bottom: 25, flexDirection: "row", alignItems: "flex-end", gap: 3 },
-  flowScroller: { height: 420, marginTop: 18, borderRadius: 18, backgroundColor: "#ecfeff" },
-  flowScrollContent: { width: 760 },
-  flowDiagram: { height: 420, marginTop: 18, borderRadius: 18, backgroundColor: "#ecfeff", overflow: "hidden", position: "relative" },
-  flowIncomingBand: { position: "absolute", left: "10%", right: "58%", top: 79, borderRadius: 999, backgroundColor: "#bfdbfe" },
-  flowDeficitBand: { position: "absolute", left: "10%", right: "58%", top: 138, borderRadius: 999, backgroundColor: "#fde68a" },
-  flowIncomeRail: { position: "absolute", left: "8%", top: 62, width: 10, height: 132, borderRadius: 6, backgroundColor: "#38bdf8" },
-  flowCenterRail: { position: "absolute", left: "40%", top: 62, width: 10, height: 132, borderRadius: 6, backgroundColor: colors.ink },
-  flowLeftLabel: { position: "absolute", left: "14%", top: 111, width: "22%" },
-  flowDeficitLabel: { position: "absolute", left: "14%", top: 152, width: "22%" },
-  flowCenterLabel: { position: "absolute", left: "45%", top: 111, width: "24%" },
-  flowBandWrap: { position: "absolute", left: "42%", right: 8, minHeight: 32 },
-  flowBand: { position: "absolute", left: 0, right: 78, top: 9, borderRadius: 999 },
-  flowEndCap: { position: "absolute", right: 72, top: 6, width: 10, borderRadius: 6 },
-  flowRightText: { position: "absolute", right: 0, top: 0, width: 76, alignItems: "flex-start" },
-  flowLabel: { color: colors.text, fontWeight: "900", fontSize: 9 },
-  flowSmallValue: { color: colors.text, fontSize: 8, marginTop: 2 },
+  flowHint: { color: colors.muted, fontSize: 12, fontWeight: "800", marginTop: 12, marginBottom: 2, paddingLeft: 18 },
+  flowScroller: { height: 370, marginTop: 8, borderRadius: 18, backgroundColor: "#ecfeff" },
+  flowScrollContent: { width: 720 },
   lineChart: { width: 320, maxWidth: "100%", alignSelf: "center", marginTop: 18, borderLeftWidth: 1, borderBottomWidth: 1, borderColor: colors.border, position: "relative", overflow: "hidden" },
   zeroLine: { position: "absolute", left: 0, right: 0, height: 1, backgroundColor: "#dbeafe" },
   lineSegment: { position: "absolute", height: 2, borderRadius: 2, backgroundColor: "#0f766e" },
   linePoint: { position: "absolute", width: 8, height: 8, borderRadius: 4, borderWidth: 2, borderColor: colors.surface },
   lineLabels: { position: "absolute", left: 0, right: 0, bottom: 0, flexDirection: "row", justifyContent: "space-between" },
+  pointDetails: { marginTop: 10, borderRadius: 12, borderWidth: 1, borderColor: "#ccfbf1", backgroundColor: "#f0fdfa", padding: 12 },
+  pointHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 },
+  pointLabel: { color: colors.ink, fontWeight: "900", flex: 1 },
+  pointNet: { fontWeight: "900", textAlign: "right" },
+  pointGrid: { flexDirection: "row", gap: 8, marginTop: 10 },
+  pointMetric: { flex: 1, borderRadius: 10, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, padding: 10 },
+  pointMetricLabel: { color: colors.muted, fontSize: 10, fontWeight: "900", textTransform: "uppercase" },
+  pointMetricValue: { color: colors.ink, fontWeight: "900", marginTop: 4 },
   pieBlock: { alignItems: "center", marginTop: 22 },
   pieWrap: { width: 178, height: 178, borderRadius: 89, backgroundColor: "#f1f5f9", alignItems: "center", justifyContent: "center", overflow: "hidden" },
   pieSlice: { position: "absolute", borderRadius: 999 },

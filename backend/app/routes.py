@@ -250,6 +250,7 @@ async def get_categories(authorization: str = Header(None)):
 
 
 @finance_router.post("/categories", status_code=status.HTTP_201_CREATED)
+@finance_router.post("/users/categories", status_code=status.HTTP_201_CREATED)
 async def create_category(category: CategoryCreate, authorization: str = Header(None)):
     user_id = await require_current_user_id(authorization)
     db = get_db()
@@ -277,6 +278,7 @@ async def create_category(category: CategoryCreate, authorization: str = Header(
 
 
 @finance_router.get("/categories/{category_id}")
+@finance_router.get("/users/categories/{category_id}")
 async def get_category(category_id: int, authorization: str = Header(None)):
     user_id = await require_current_user_id(authorization)
     db = get_db()
@@ -287,6 +289,8 @@ async def get_category(category_id: int, authorization: str = Header(None)):
 
 
 @finance_router.patch("/categories/{category_id}")
+@finance_router.put("/categories/{category_id}")
+@finance_router.put("/users/categories/{category_id}")
 async def update_category(category_id: int, category: CategoryUpdate, authorization: str = Header(None)):
     user_id = await require_current_user_id(authorization)
     db = get_db()
@@ -325,6 +329,7 @@ async def update_category(category_id: int, category: CategoryUpdate, authorizat
 
 
 @finance_router.delete("/categories/{category_id}")
+@finance_router.delete("/users/categories/{category_id}")
 async def delete_category(category_id: int, authorization: str = Header(None)):
     user_id = await require_current_user_id(authorization)
     db = get_db()
@@ -358,6 +363,7 @@ async def delete_category(category_id: int, authorization: str = Header(None)):
 
 
 @finance_router.get("/transactions")
+@finance_router.get("/transactions/")
 async def get_transactions(authorization: str = Header(None)):
     user_id = await require_current_user_id(authorization)
     db = get_db()
@@ -377,6 +383,7 @@ async def get_transactions(authorization: str = Header(None)):
 
 
 @finance_router.post("/transactions", status_code=status.HTTP_201_CREATED)
+@finance_router.post("/transactions/", status_code=status.HTTP_201_CREATED)
 async def create_transaction(transaction: TransactionCreate, authorization: str = Header(None)):
     user_id = await require_current_user_id(authorization)
     db = get_db()
@@ -412,6 +419,7 @@ async def get_transaction(transaction_id: int, authorization: str = Header(None)
 
 
 @finance_router.patch("/transactions/{transaction_id}")
+@finance_router.put("/transactions/{transaction_id}")
 async def update_transaction(transaction_id: int, transaction: TransactionUpdate, authorization: str = Header(None)):
     user_id = await require_current_user_id(authorization)
     db = get_db()

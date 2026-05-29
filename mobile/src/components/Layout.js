@@ -75,7 +75,8 @@ const styles = StyleSheet.create({
     fontSize: 13
   },
   headerCopy: {
-    flex: 1
+    flex: 1,
+    minWidth: 0
   },
   eyebrow: {
     color: colors.primary,
@@ -88,7 +89,8 @@ const styles = StyleSheet.create({
   title: {
     color: colors.ink,
     fontSize: 25,
-    fontWeight: "900"
+    fontWeight: "900",
+    flexShrink: 1
   },
   subtitle: {
     color: colors.muted,

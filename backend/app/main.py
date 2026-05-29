@@ -25,13 +25,19 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-origins = ["*"] if settings.cors_origin == "*" else [
+configured_origins = [
     origin.strip() for origin in settings.cors_origin.split(",") if origin.strip()
 ]
+dev_origins = [
+    "http://localhost:8081",
+    "http://127.0.0.1:8081",
+]
+origins = ["*"] if "*" in configured_origins else sorted({*configured_origins, *dev_origins})
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
+    allow_origin_regex=r"^http://(localhost|127\.0\.0\.1):\d+$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

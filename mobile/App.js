@@ -1,4 +1,6 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
+import { ActivityIndicator, StyleSheet, Text, View, useWindowDimensions } from "react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { NavigationContainer } from "@react-navigation/native";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { StatusBar } from "expo-status-bar";
@@ -24,7 +26,12 @@ const iconMap = {
   More: ["grid", "grid-outline"]
 };
 
+const AUTH_STORAGE_KEY = "budgetmate.auth";
+
 function AppTabs() {
+  const { width } = useWindowDimensions();
+  const compactTabs = width < 375;
+
   return (
     <NavigationContainer>
       <StatusBar style="dark" />
@@ -33,11 +40,12 @@ function AppTabs() {
           headerShown: false,
           tabBarActiveTintColor: colors.primary,
           tabBarInactiveTintColor: colors.muted,
+          tabBarShowLabel: !compactTabs,
           tabBarLabelStyle: { fontSize: 10, fontWeight: "800" },
           tabBarStyle: {
-            height: 72,
+            height: compactTabs ? 62 : 72,
             paddingTop: 8,
-            paddingBottom: 10,
+            paddingBottom: compactTabs ? 8 : 10,
             borderTopWidth: 1,
             borderTopColor: colors.border,
             backgroundColor: colors.surface,
@@ -66,19 +74,85 @@ function AppTabs() {
 
 export default function App() {
   const [user, setUser] = useState(null);
+  const [restoringSession, setRestoringSession] = useState(true);
+
+  useEffect(() => {
+    let active = true;
+    AsyncStorage.getItem(AUTH_STORAGE_KEY)
+      .then((storedUser) => {
+        if (active && storedUser) {
+          setUser(JSON.parse(storedUser));
+        }
+      })
+      .catch(() => {
+        AsyncStorage.removeItem(AUTH_STORAGE_KEY);
+      })
+      .finally(() => {
+        if (active) {
+          setRestoringSession(false);
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  async function handleAuthenticated(result) {
+    setUser(result);
+    try {
+      await AsyncStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(result));
+    } catch {
+      // The in-memory session still works if device storage is unavailable.
+    }
+  }
+
+  async function logout() {
+    setUser(null);
+    try {
+      await AsyncStorage.removeItem(AUTH_STORAGE_KEY);
+    } catch {
+      // Clearing local React state is enough to return to the login screen.
+    }
+  }
+
+  if (restoringSession) {
+    return (
+      <View style={styles.loadingScreen}>
+        <StatusBar style="dark" />
+        <ActivityIndicator color={colors.primary} size="large" />
+        <Text style={styles.loadingText}>Restoring your session...</Text>
+      </View>
+    );
+  }
 
   if (!user) {
     return (
       <>
         <StatusBar style="dark" />
-        <AuthScreen onAuthenticated={setUser} />
+        <AuthScreen onAuthenticated={handleAuthenticated} />
       </>
     );
   }
 
   return (
-    <AuthProvider value={{ ...user, logout: () => setUser(null) }}>
+    <AuthProvider value={{ ...user, logout }}>
       <AppTabs />
     </AuthProvider>
   );
 }
+
+const styles = StyleSheet.create({
+  loadingScreen: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.background,
+    padding: 24
+  },
+  loadingText: {
+    color: colors.muted,
+    fontWeight: "800",
+    marginTop: 14
+  }
+});
