@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from "react-native";
+import { Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import Svg, { Circle, G, Line, Path, Rect, Text as SvgText } from "react-native-svg";
 import { Card, EmptyState } from "../components/Card";
@@ -14,8 +14,7 @@ const rangeOptions = [
   ["1m", "1M"],
   ["6m", "6M"],
   ["12m", "1Y"],
-  ["all", "All"],
-  ["custom", "Custom"]
+  ["all", "All"]
 ];
 const modeOptions = [
   ["overview", "Overview"],
@@ -34,12 +33,13 @@ export default function ReportsScreen() {
   const { categories, error, hasData, loading, refresh, transactions } = useFinanceData();
   const { width } = useWindowDimensions();
   const [range, setRange] = useState("1m");
+  const [customRange, setCustomRange] = useState({ from: "", to: "" });
   const [mode, setMode] = useState("overview");
   const [selectedPoint, setSelectedPoint] = useState(null);
   const isWide = width >= 720;
   const chartWidth = Math.min(Math.max(width - 64, 256), isWide ? 760 : 366);
 
-  const rangeBounds = useMemo(() => getRangeBounds(range, transactions), [range, transactions]);
+  const rangeBounds = useMemo(() => getRangeBounds(range, transactions, customRange), [customRange, range, transactions]);
   const filteredTransactions = useMemo(() => filterTransactions(transactions, rangeBounds), [rangeBounds, transactions]);
   const bucketMode = useMemo(() => getBucketMode(range, rangeBounds), [range, rangeBounds]);
   const cashflowData = useMemo(() => buildCashflowData(filteredTransactions, bucketMode), [bucketMode, filteredTransactions]);
@@ -68,6 +68,38 @@ export default function ReportsScreen() {
             </Pressable>
           ))}
         </ScrollView>
+        <View style={styles.customRangeBlock}>
+          <Pressable style={[styles.customRangeButton, range === "custom" && styles.rangeActive]} onPress={() => setRange("custom")}>
+            <Ionicons name="calendar-number-outline" color={range === "custom" ? colors.surface : colors.ink} size={15} />
+            <Text style={[styles.rangeText, range === "custom" && styles.rangeTextActive]}>Custom</Text>
+          </Pressable>
+          {range === "custom" ? (
+            <View style={styles.customFields}>
+              <View style={styles.customField}>
+                <Text style={styles.customFieldLabel}>From</Text>
+                <TextInput
+                  value={customRange.from}
+                  onChangeText={(value) => setCustomRange((current) => ({ ...current, from: value }))}
+                  placeholder="YYYY-MM-DD"
+                  placeholderTextColor={colors.muted}
+                  keyboardType="numbers-and-punctuation"
+                  style={styles.customInput}
+                />
+              </View>
+              <View style={styles.customField}>
+                <Text style={styles.customFieldLabel}>To</Text>
+                <TextInput
+                  value={customRange.to}
+                  onChangeText={(value) => setCustomRange((current) => ({ ...current, to: value }))}
+                  placeholder="YYYY-MM-DD"
+                  placeholderTextColor={colors.muted}
+                  keyboardType="numbers-and-punctuation"
+                  style={styles.customInput}
+                />
+              </View>
+            </View>
+          ) : null}
+        </View>
       </Card>
 
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.statsGrid}>
@@ -79,18 +111,22 @@ export default function ReportsScreen() {
 
       <Card>
         <View style={[styles.sectionHeader, isWide && styles.sectionHeaderWide]}>
-          <View>
-            <View style={styles.titleRow}>
-              <Ionicons name="bar-chart-outline" color={colors.sky} size={20} />
-              <Text style={styles.cardTitle}>Cash Flow</Text>
+          <View style={styles.cashHeaderMain}>
+            <View style={styles.titleWithAverage}>
+              <View style={styles.cashTitleBlock}>
+                <View style={styles.titleRow}>
+                  <Ionicons name="bar-chart-outline" color={colors.sky} size={20} />
+                  <Text style={styles.cardTitle}>Cash Flow</Text>
+                </View>
+                <Text style={styles.cardHelp}>{getRangeLabel(rangeBounds)}</Text>
+              </View>
+              <View style={styles.averagePill}>
+                <Text style={styles.pillLabel}>Average Net</Text>
+                <Text style={[styles.pillValue, averageNet >= 0 ? styles.income : styles.expense]}>{formatVND(averageNet)}</Text>
+              </View>
             </View>
-            <Text style={styles.cardHelp}>{getRangeLabel(rangeBounds)}</Text>
           </View>
           <View style={[styles.chartToolbar, isWide && styles.chartToolbarWide]}>
-            <View style={styles.averagePill}>
-              <Text style={styles.pillLabel}>Average Net</Text>
-              <Text style={[styles.pillValue, averageNet >= 0 ? styles.income : styles.expense]}>{formatVND(averageNet)}</Text>
-            </View>
             <View style={[styles.modeRow, isWide && styles.modeRowWide]}>
               {modeOptions.map(([id, label]) => (
                 <Pressable key={id} style={[styles.modeButton, mode === id && styles.modeActive]} onPress={() => { setMode(id); setSelectedPoint(null); }}>
@@ -466,8 +502,8 @@ function FlowDiagram({ totals, expenseRows, incomeRows, chartWidth }) {
     return <Text style={styles.emptyInline}>No flow data yet.</Text>;
   }
 
-  const width = Math.max(chartWidth, 320);
-  const isCompact = width < 420;
+  const isCompact = chartWidth < 420;
+  const width = isCompact ? 560 : Math.max(chartWidth, 620);
   const height = isCompact ? 270 : 300;
   const nodeWidth = isCompact ? 11 : 14;
   const leftX = isCompact ? 14 : 22;
@@ -517,7 +553,7 @@ function FlowDiagram({ totals, expenseRows, incomeRows, chartWidth }) {
   const incomeLabelX = leftX + nodeWidth + (isCompact ? 7 : 10);
 
   return (
-    <View style={styles.flowWrap}>
+    <ScrollView horizontal showsHorizontalScrollIndicator style={styles.flowWrap} contentContainerStyle={styles.flowScrollContent}>
       <Svg width={width} height={height} viewBox={`0 0 ${width} ${height}`}>
         <Rect x="0" y="0" width={width} height={height} rx="20" fill="#eef7f2" />
 
@@ -591,7 +627,7 @@ function FlowDiagram({ totals, expenseRows, incomeRows, chartWidth }) {
           </G>
         ))}
       </Svg>
-    </View>
+    </ScrollView>
   );
 }
 
@@ -861,12 +897,11 @@ function Highlight({ title, item, positive }) {
 }
 
 function filterTransactions(transactions, bounds) {
-  if (!bounds.from || !bounds.to) {
-    return [...transactions].sort(sortByDate);
-  }
   return transactions.filter((item) => {
     const date = parseDate(item.date);
-    return date >= bounds.from && date <= bounds.to;
+    if (bounds.from && date < bounds.from) return false;
+    if (bounds.to && date > bounds.to) return false;
+    return true;
   }).sort(sortByDate);
 }
 
@@ -929,7 +964,14 @@ function shortDateLabel(label) {
   return String(label).replace(/, 202\d$/, "").replace(/ 202\d$/, "");
 }
 
-function getRangeBounds(range, transactions) {
+function getRangeBounds(range, transactions, customRange = {}) {
+  if (range === "custom") {
+    return {
+      from: parseInputDate(customRange.from),
+      to: parseInputDate(customRange.to)
+    };
+  }
+
   if (range === "all") {
     const dates = transactions.map((item) => parseDate(item.date)).filter((item) => !Number.isNaN(item.getTime())).sort((a, b) => a - b);
     return { from: dates[0] || null, to: dates[dates.length - 1] || null };
@@ -938,7 +980,7 @@ function getRangeBounds(range, transactions) {
   const to = startOfDay(new Date());
   const from = new Date(to);
   if (range === "1w") from.setDate(to.getDate() - 6);
-  if (range === "1m" || range === "custom") from.setMonth(to.getMonth() - 1);
+  if (range === "1m") from.setMonth(to.getMonth() - 1);
   if (range === "6m") from.setMonth(to.getMonth() - 5);
   if (range === "12m") from.setMonth(to.getMonth() - 11);
   return { from: startOfDay(from), to };
@@ -956,8 +998,16 @@ function getBucketMode(range, bounds) {
 }
 
 function getRangeLabel(bounds) {
-  if (!bounds.from || !bounds.to) return "No report range";
+  if (bounds.from && !bounds.to) return `${formatDateLabel(bounds.from)} - Select end date`;
+  if (!bounds.from && bounds.to) return `Select start date - ${formatDateLabel(bounds.to)}`;
+  if (!bounds.from || !bounds.to) return "Select report range";
   return `${formatDateLabel(bounds.from)} - ${formatDateLabel(bounds.to)}`;
+}
+
+function parseInputDate(value) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(value || ""))) return null;
+  const date = parseDate(value);
+  return Number.isNaN(date.getTime()) ? null : startOfDay(date);
 }
 
 function parseDate(value) {
@@ -1007,6 +1057,12 @@ const styles = StyleSheet.create({
   rangeActive: { backgroundColor: colors.ink, borderColor: colors.ink },
   rangeText: { color: colors.ink, fontWeight: "900", fontSize: 12 },
   rangeTextActive: { color: colors.surface },
+  customRangeBlock: { marginTop: 10, gap: 10 },
+  customRangeButton: { minHeight: 38, alignSelf: "flex-start", borderRadius: 8, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, alignItems: "center", justifyContent: "center", paddingHorizontal: 12, flexDirection: "row", gap: 6 },
+  customFields: { borderRadius: 12, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, padding: 10, gap: 10 },
+  customField: { gap: 5 },
+  customFieldLabel: { color: colors.muted, fontSize: 10, fontWeight: "900", textTransform: "uppercase" },
+  customInput: { minHeight: 38, borderRadius: 8, borderWidth: 1, borderColor: colors.border, color: colors.ink, fontWeight: "800", paddingHorizontal: 10, backgroundColor: "#f8fafc" },
   statsGrid: { paddingHorizontal: 16, paddingTop: 14, gap: 8 },
   statCard: { width: 148, minHeight: 82, borderRadius: 12, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, padding: 10, flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 8 },
   statCopy: { flex: 1, minWidth: 0 },
@@ -1015,10 +1071,13 @@ const styles = StyleSheet.create({
   statIcon: { width: 32, height: 32, borderRadius: 10, alignItems: "center", justifyContent: "center", flexShrink: 0 },
   sectionHeader: { gap: 12 },
   sectionHeaderWide: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between" },
+  cashHeaderMain: { flex: 1, minWidth: 0 },
+  titleWithAverage: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 10 },
+  cashTitleBlock: { flex: 1, minWidth: 0 },
   titleRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   cardTitle: { color: colors.ink, fontSize: 20, fontWeight: "900" },
   cardHelp: { color: colors.muted, fontSize: 12, lineHeight: 18, marginTop: 8 },
-  averagePill: { alignSelf: "flex-start", borderRadius: 14, backgroundColor: "#f8fafc", paddingHorizontal: 14, paddingVertical: 10 },
+  averagePill: { alignSelf: "flex-start", borderRadius: 14, backgroundColor: "#f8fafc", paddingHorizontal: 12, paddingVertical: 9, maxWidth: 150 },
   pillLabel: { color: colors.muted, fontSize: 10, fontWeight: "900", textTransform: "uppercase", letterSpacing: 1.6 },
   pillValue: { fontWeight: "900", marginTop: 4 },
   chartToolbar: { gap: 10 },
@@ -1047,7 +1106,8 @@ const styles = StyleSheet.create({
   cashLabel: { color: colors.muted, fontSize: 9, fontWeight: "800", marginTop: 8 },
   overviewChart: { alignSelf: "center", marginTop: 18, borderLeftWidth: 1, borderBottomWidth: 1, borderColor: colors.border, position: "relative", overflow: "hidden" },
   overviewBarPair: { position: "absolute", bottom: 25, flexDirection: "row", alignItems: "flex-end", gap: 3 },
-  flowWrap: { marginTop: 16, borderRadius: 20, overflow: "hidden", backgroundColor: "#eef7f2" },
+  flowWrap: { marginTop: 16, borderRadius: 20, backgroundColor: "#eef7f2" },
+  flowScrollContent: { paddingRight: 0 },
   lineChart: { width: 320, maxWidth: "100%", alignSelf: "center", marginTop: 18, borderLeftWidth: 1, borderBottomWidth: 1, borderColor: colors.border, position: "relative", overflow: "hidden" },
   zeroLine: { position: "absolute", left: 0, right: 0, height: 1, backgroundColor: "#dbeafe" },
   lineSegment: { position: "absolute", height: 2, borderRadius: 2, backgroundColor: "#0f766e" },
