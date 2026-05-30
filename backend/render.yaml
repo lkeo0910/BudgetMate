@@ -6,12 +6,20 @@ services:
     buildCommand: uv sync --frozen
     startCommand: uv run uvicorn app.main:app --host 0.0.0.0 --port $PORT
     envVars:
+      - key: DATABASE_FALLBACK_TO_SQLITE
+        value: "true"
+      - key: SQLITE_DATABASE_PATH
+        value: "/var/lib/budgetmate/budgetmate.db"
+      - key: UPLOAD_DIR
+        value: "/var/lib/budgetmate/uploads"
+      - key: MONGODB_REQUIRED
+        value: "false"
+      - key: PUSH_PROVIDER
+        value: "future"
+      - key: RATE_LIMIT_ENABLED
+        value: "true"
       - key: CORS_ORIGIN
         value: "*"
-      - key: DATABASE_FALLBACK_TO_SQLITE
-        value: "false"
-      - key: MONGODB_REQUIRED
-        value: "true"
       - key: DATABASE_URL
         sync: false
       - key: MONGODB_URI
