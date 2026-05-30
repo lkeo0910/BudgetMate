@@ -11,18 +11,16 @@ export default {
     },
     assetBundlePatterns: ["**/*"],
     android: {
-      usesCleartextTraffic: true
+      package: "com.lkeo0910.budgetmate"
     },
     ios: {
-      supportsTablet: true,
-      infoPlist: {
-        NSAppTransportSecurity: {
-          NSAllowsArbitraryLoads: true
-        }
-      }
+      bundleIdentifier: "com.lkeo0910.budgetmate",
+      supportsTablet: true
     },
     extra: {
-      apiUrl: process.env.EXPO_PUBLIC_API_URL || "http://54.179.178.52/api/v1"
+      apiUrl:
+        process.env.EXPO_PUBLIC_API_URL ||
+        "https://budgetmate-msgt.onrender.com/api/v1"
     }
   }
 };
