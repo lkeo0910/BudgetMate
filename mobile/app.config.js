@@ -20,7 +20,10 @@ export default {
     extra: {
       apiUrl:
         process.env.EXPO_PUBLIC_API_URL ||
-        "https://budgetmate-msgt.onrender.com/api/v1"
+        "https://budgetmate-msgt.onrender.com/api/v1",
+      eas: {
+        projectId: "f466edb8-fa55-4bff-8c4d-5823dac9ba9c"
+      }
     }
   }
 };
