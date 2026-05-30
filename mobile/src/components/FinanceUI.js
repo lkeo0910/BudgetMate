@@ -14,7 +14,7 @@ export function IconBubble({ name, color = colors.primary, softColor, size = 22 
 
 export function PrimaryButton({ label, icon, onPress, variant = "solid" }) {
   return (
-    <Pressable onPress={onPress} style={[styles.button, variant === "outline" && styles.buttonOutline]}>
+    <Pressable accessibilityRole="button" accessibilityLabel={label} onPress={onPress} style={[styles.button, variant === "outline" && styles.buttonOutline]}>
       <Text style={[styles.buttonText, variant === "outline" && styles.buttonOutlineText]}>{label}</Text>
       {!!icon && <Ionicons name={icon} color={variant === "outline" ? colors.ink : colors.surface} size={17} />}
     </Pressable>

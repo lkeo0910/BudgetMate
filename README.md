@@ -23,9 +23,10 @@ password: password123
 - Login/register/logout with JWT auth
 - Dashboard, budget, transactions, categories, and reports
 - Accounts overview from real transaction data
-- Savings goals with contributions recorded as transactions
+- Savings goals with a separate creation screen, goal-linked transactions, and contributions recorded as transactions
 - BudgetMate AI chat with saved chat sections and transaction-aware replies
-- Profile and settings screens
+- Profile, settings, change password, and profile photo upload screens
+- Shared custom date range picker for dashboard and reports
 - SQLite seed data for immediate local testing
 
 ## Setup
@@ -104,7 +105,7 @@ cd backend
 uv run python -m unittest discover -s tests
 ```
 
-The smoke test uses a temporary SQLite database and verifies demo login, categories, paginated transactions, savings goals, contributions, and chat.
+The smoke test uses a temporary SQLite database and verifies demo login, categories, paginated transactions, savings goals, goal-linked transactions, password changes, profile photo upload, and chat.
 
 ## Troubleshooting
 

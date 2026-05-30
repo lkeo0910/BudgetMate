@@ -8,11 +8,12 @@ import { createTransaction, deleteTransaction, updateTransaction } from "../api/
 import { formatVND } from "../data/finance";
 import { useAuth } from "../context/AuthContext";
 import { useFinanceData } from "../hooks/useFinanceData";
+import { useSavingsGoals } from "../hooks/useSavingsGoals";
 import { colors } from "../theme";
 
 const pageSize = 5;
 const initialFilters = { categoryIds: [], from: "", to: "", min: "", max: "" };
-const emptyForm = { type: "EXPENSE", amount: "", date: "", vendor: "", categoryId: "", notes: "" };
+const emptyForm = { type: "EXPENSE", amount: "", date: "", vendor: "", categoryId: "", goalMode: false, goalId: "", notes: "" };
 
 function todayString() {
   return new Date().toISOString().slice(0, 10);
@@ -21,6 +22,7 @@ function todayString() {
 export default function TransactionsScreen({ navigation }) {
   const auth = useAuth();
   const { categories, error, loading, refresh, transactions } = useFinanceData();
+  const { contributions, goals, refresh: refreshGoals } = useSavingsGoals();
   const [search, setSearch] = useState("");
   const [type, setType] = useState("ALL");
   const [filters, setFilters] = useState(initialFilters);
@@ -50,18 +52,23 @@ export default function TransactionsScreen({ navigation }) {
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
   const currentPage = Math.min(page, totalPages);
   const pageItems = filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+  const goalCategoryIds = useMemo(() => new Set(goals.map((goal) => String(goal.categoryId)).filter(Boolean)), [goals]);
 
   function openAdd() {
     const defaultType = "EXPENSE";
-    const defaultCategory = categories.find((item) => item.type === defaultType.toLowerCase());
+    const defaultCategory = categories.find((item) => item.type === defaultType.toLowerCase() && !goalCategoryIds.has(String(item.id)));
     setEditing(null);
-    setForm({ ...emptyForm, type: defaultType, date: todayString(), categoryId: defaultCategory?.id || "" });
+    setForm({ ...emptyForm, type: defaultType, date: todayString(), categoryId: defaultCategory?.id || "", goalId: "" });
     setFormError("");
     setFormOpen(true);
   }
 
   function openEdit(item) {
     const category = categories.find((row) => row.name === item.category);
+    const linkedContribution = contributions.find((row) => String(row.transaction_id) === String(item.id));
+    const linkedGoal = linkedContribution
+      ? goals.find((goal) => String(goal.id) === String(linkedContribution.goal_id))
+      : null;
     setEditing(item);
     setForm({
       type: item.type,
@@ -69,6 +76,8 @@ export default function TransactionsScreen({ navigation }) {
       date: item.date,
       vendor: item.vendor,
       categoryId: String(item.categoryId || category?.id || ""),
+      goalMode: !!linkedGoal,
+      goalId: linkedGoal?.id || "",
       notes: item.note || ""
     });
     setMenuId(null);
@@ -90,6 +99,10 @@ export default function TransactionsScreen({ navigation }) {
       setFormError("Amount must be greater than 0.");
       return;
     }
+    if (form.goalMode && !form.goalId) {
+      setFormError("Select a savings goal or turn off the savings goal option.");
+      return;
+    }
 
     const payload = {
       vendor: form.vendor.trim(),
@@ -97,7 +110,8 @@ export default function TransactionsScreen({ navigation }) {
       amount: Number(form.amount),
       date: form.date,
       type: form.type,
-      notes: form.notes.trim() || null
+      notes: form.notes.trim() || null,
+      goal_id: form.goalMode && form.goalId ? Number(form.goalId) : null
     };
 
     setSaving(true);
@@ -108,7 +122,7 @@ export default function TransactionsScreen({ navigation }) {
         await createTransaction(auth.access_token, payload);
       }
       setFormOpen(false);
-      await refresh();
+      await Promise.all([refresh(), refreshGoals()]);
     } catch (err) {
       setFormError(err.response?.data?.detail || err.message || "Could not save transaction.");
     } finally {
@@ -121,7 +135,7 @@ export default function TransactionsScreen({ navigation }) {
     setSaving(true);
     try {
       await deleteTransaction(auth.access_token, item.id);
-      await refresh();
+      await Promise.all([refresh(), refreshGoals()]);
     } catch (err) {
       setFormError(err.response?.data?.detail || err.message || "Could not delete transaction.");
     } finally {
@@ -236,6 +250,8 @@ export default function TransactionsScreen({ navigation }) {
         editing={editing}
         error={formError}
         form={form}
+        goalCategoryIds={goalCategoryIds}
+        goals={goals}
         open={formOpen}
         saving={saving}
         setForm={setForm}
@@ -325,15 +341,51 @@ function FilterModal({ categories, filters, open, setFilters, toggleCategory, on
   );
 }
 
-function TransactionModal({ categories, editing, error, form, open, saving, setForm, onClose, onSave }) {
+function TransactionModal({ categories, editing, error, form, goalCategoryIds, goals, open, saving, setForm, onClose, onSave }) {
   const [categoryOpen, setCategoryOpen] = useState(false);
-  const availableCategories = categories.filter((item) => item.type === form.type.toLowerCase());
+  const [goalOpen, setGoalOpen] = useState(false);
+  const availableCategories = categories.filter((item) => (
+    item.type === form.type.toLowerCase() &&
+    (form.goalMode || !goalCategoryIds.has(String(item.id)))
+  ));
   const selectedCategory = availableCategories.find((item) => item.id === form.categoryId);
+  const availableGoals = form.type === "EXPENSE" && form.goalMode ? goals : [];
+  const selectedGoal = availableGoals.find((item) => item.id === form.goalId);
 
   function selectType(type) {
-    const defaultCategory = categories.find((item) => item.type === type.toLowerCase());
+    const defaultCategory = categories.find((item) => item.type === type.toLowerCase() && !goalCategoryIds.has(String(item.id)));
     setCategoryOpen(false);
-    setForm((current) => ({ ...current, type, categoryId: defaultCategory?.id || "" }));
+    setGoalOpen(false);
+    setForm((current) => ({ ...current, type, categoryId: defaultCategory?.id || "", goalMode: false, goalId: "" }));
+  }
+
+  function selectGoal(goal) {
+    setGoalOpen(false);
+    setCategoryOpen(false);
+    setForm((current) => ({
+      ...current,
+      goalId: goal.id,
+      categoryId: goal.categoryId || current.categoryId,
+      vendor: current.vendor.trim() ? current.vendor : goal.title
+    }));
+  }
+
+  function selectCategory(category) {
+    const matchingGoal = form.goalMode ? availableGoals.find((goal) => String(goal.categoryId) === String(category.id)) : null;
+    setForm((current) => ({ ...current, categoryId: category.id, goalId: current.goalMode ? matchingGoal?.id || "" : current.goalId }));
+    setCategoryOpen(false);
+  }
+
+  function toggleGoalMode() {
+    setGoalOpen(false);
+    setCategoryOpen(false);
+    setForm((current) => {
+      if (current.goalMode) {
+        const defaultCategory = categories.find((item) => item.type === "expense" && !goalCategoryIds.has(String(item.id)));
+        return { ...current, goalMode: false, goalId: "", categoryId: defaultCategory?.id || current.categoryId };
+      }
+      return { ...current, goalMode: true };
+    });
   }
 
   return (
@@ -369,28 +421,75 @@ function TransactionModal({ categories, editing, error, form, open, saving, setF
             </View>
             <Field label={form.type === "INCOME" ? "Source" : "Vendor"} value={form.vendor} placeholder="e.g. Highlands Coffee..." onChangeText={(vendor) => setForm((current) => ({ ...current, vendor }))} />
 
+          {form.type === "EXPENSE" ? (
+            <Pressable style={[styles.goalModeRow, form.goalMode && styles.goalModeActive]} onPress={toggleGoalMode}>
+              <View style={[styles.checkbox, form.goalMode && styles.checkboxActive]}>
+                {form.goalMode && <Ionicons name="checkmark" color={colors.surface} size={14} />}
+              </View>
+              <View style={styles.goalModeCopy}>
+                <Text style={styles.goalModeTitle}>This transaction is for a savings goal</Text>
+                <Text style={styles.goalModeHelp}>Show goal choices only when this payment should update saved progress.</Text>
+              </View>
+            </Pressable>
+          ) : null}
+
+          {form.type === "EXPENSE" && form.goalMode ? (
+            <>
+              <Text style={styles.formLabel}>Savings Goal</Text>
+              <View style={styles.dropdownWrap}>
+                <Pressable accessibilityRole="button" accessibilityLabel="Choose Savings Goal" style={styles.dropdownButton} onPress={() => setGoalOpen((current) => !current)}>
+                  <Text style={[styles.dropdownText, !selectedGoal && styles.dropdownPlaceholder]}>{selectedGoal?.title || "Not linked to a goal"}</Text>
+                  <Ionicons name={goalOpen ? "chevron-up" : "chevron-down"} color={colors.muted} size={18} />
+                </Pressable>
+                {goalOpen && (
+                  <View style={styles.dropdownMenu}>
+                    <ScrollView nestedScrollEnabled style={styles.dropdownScroll}>
+                      <Pressable
+                        style={[styles.dropdownItem, !form.goalId && styles.dropdownItemActive]}
+                        onPress={() => {
+                          setForm((current) => ({ ...current, goalId: "" }));
+                          setGoalOpen(false);
+                        }}
+                      >
+                        <Ionicons name="remove-circle-outline" color={!form.goalId ? colors.surface : colors.text} size={15} />
+                        <Text style={[styles.dropdownItemText, !form.goalId && styles.dropdownItemTextActive]}>No goal link</Text>
+                      </Pressable>
+                      {availableGoals.map((item) => (
+                        <Pressable key={item.id} style={[styles.dropdownItem, form.goalId === item.id && styles.dropdownItemActive]} onPress={() => selectGoal(item)}>
+                          <Ionicons name="flag-outline" color={form.goalId === item.id ? colors.surface : colors.text} size={15} />
+                          <Text style={[styles.dropdownItemText, form.goalId === item.id && styles.dropdownItemTextActive]}>{item.title}</Text>
+                        </Pressable>
+                      ))}
+                      {!availableGoals.length && <Text style={styles.emptyText}>Create a goal first to link transaction savings.</Text>}
+                    </ScrollView>
+                  </View>
+                )}
+              </View>
+              {!!selectedGoal && <Text style={styles.goalHint}>This transaction will update {selectedGoal.title} progress.</Text>}
+            </>
+          ) : null}
+
           <Text style={styles.formLabel}>Category</Text>
           <View style={styles.dropdownWrap}>
-            <Pressable style={styles.dropdownButton} onPress={() => setCategoryOpen((current) => !current)}>
+            <Pressable accessibilityRole="button" accessibilityLabel="Choose Transaction Category" style={styles.dropdownButton} onPress={() => setCategoryOpen((current) => !current)}>
               <Text style={[styles.dropdownText, !selectedCategory && styles.dropdownPlaceholder]}>{selectedCategory?.name || "Select a category"}</Text>
               <Ionicons name={categoryOpen ? "chevron-up" : "chevron-down"} color={colors.muted} size={18} />
             </Pressable>
             {categoryOpen && (
               <View style={styles.dropdownMenu}>
-                {availableCategories.map((item) => (
-                  <Pressable
-                    key={item.id}
-                    style={[styles.dropdownItem, form.categoryId === item.id && styles.dropdownItemActive]}
-                    onPress={() => {
-                      setForm((current) => ({ ...current, categoryId: item.id }));
-                      setCategoryOpen(false);
-                    }}
-                  >
-                    <Ionicons name={item.icon || "pricetag-outline"} color={form.categoryId === item.id ? colors.surface : colors.text} size={15} />
-                    <Text style={[styles.dropdownItemText, form.categoryId === item.id && styles.dropdownItemTextActive]}>{item.name}</Text>
-                  </Pressable>
-                ))}
-                {!availableCategories.length && <Text style={styles.emptyText}>No {form.type === "INCOME" ? "income" : "expense"} categories yet. Open Categories to create one.</Text>}
+                <ScrollView nestedScrollEnabled style={styles.dropdownScroll}>
+                  {availableCategories.map((item) => (
+                    <Pressable
+                      key={item.id}
+                      style={[styles.dropdownItem, form.categoryId === item.id && styles.dropdownItemActive]}
+                      onPress={() => selectCategory(item)}
+                    >
+                      <Ionicons name={item.icon || "pricetag-outline"} color={form.categoryId === item.id ? colors.surface : colors.text} size={15} />
+                      <Text style={[styles.dropdownItemText, form.categoryId === item.id && styles.dropdownItemTextActive]}>{item.name}</Text>
+                    </Pressable>
+                  ))}
+                  {!availableCategories.length && <Text style={styles.emptyText}>No {form.type === "INCOME" ? "income" : "expense"} categories yet. Open Categories to create one.</Text>}
+                </ScrollView>
               </View>
             )}
           </View>
@@ -398,7 +497,7 @@ function TransactionModal({ categories, editing, error, form, open, saving, setF
             <Field label="Note" multiline value={form.notes} placeholder="Add an optional note for this transaction" onChangeText={(notes) => setForm((current) => ({ ...current, notes }))} />
             {!!error && <Text style={styles.errorText}>{error}</Text>}
 
-            <Pressable style={[styles.saveButton, saving && styles.saveDisabled]} disabled={saving} onPress={onSave}>
+            <Pressable accessibilityRole="button" accessibilityLabel="Save Transaction" style={[styles.saveButton, saving && styles.saveDisabled]} disabled={saving} onPress={onSave}>
               <Text style={styles.saveText}>{saving ? "Saving..." : "Save Transaction"}</Text>
             </Pressable>
           </ScrollView>
@@ -486,15 +585,22 @@ const styles = StyleSheet.create({
   typeSwitchButton: { flex: 1, borderRadius: 7, alignItems: "center", justifyContent: "center" },
   typeSwitchActive: { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border },
   typeSwitchText: { color: colors.ink, fontWeight: "800" },
+  goalModeRow: { marginTop: 14, borderRadius: 12, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, padding: 12, flexDirection: "row", alignItems: "flex-start", gap: 10 },
+  goalModeActive: { borderColor: "#99f6e4", backgroundColor: "#f0fdfa" },
+  goalModeCopy: { flex: 1 },
+  goalModeTitle: { color: colors.ink, fontWeight: "900" },
+  goalModeHelp: { color: colors.muted, fontWeight: "700", fontSize: 12, lineHeight: 17, marginTop: 3 },
   dropdownWrap: { position: "relative", zIndex: 20 },
-  dropdownButton: { width: 190, minHeight: 42, borderRadius: 8, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, paddingHorizontal: 12, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  dropdownButton: { width: "100%", minHeight: 42, borderRadius: 8, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, paddingHorizontal: 12, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   dropdownText: { color: colors.ink, fontWeight: "800" },
   dropdownPlaceholder: { color: colors.muted },
-  dropdownMenu: { position: "absolute", top: 46, left: 0, width: 190, maxHeight: 230, borderRadius: 8, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, zIndex: 30, overflow: "hidden" },
+  dropdownMenu: { marginTop: 6, maxHeight: 230, borderRadius: 8, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, overflow: "hidden" },
+  dropdownScroll: { maxHeight: 230 },
   dropdownItem: { minHeight: 34, flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 10 },
   dropdownItemActive: { backgroundColor: "#fb7185" },
   dropdownItemText: { color: colors.text, fontWeight: "800", fontSize: 12 },
   dropdownItemTextActive: { color: colors.surface },
+  goalHint: { color: colors.primaryDark, fontWeight: "800", fontSize: 12, lineHeight: 18, marginTop: 8 },
   errorText: { color: colors.rose, fontWeight: "800", marginTop: 10 },
   saveButton: { minHeight: 50, borderRadius: 8, backgroundColor: colors.primary, alignItems: "center", justifyContent: "center", marginTop: 16 },
   saveDisabled: { opacity: 0.65 },

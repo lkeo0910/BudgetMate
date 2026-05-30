@@ -54,6 +54,7 @@ class TransactionCreate(BaseModel):
     date: date_type
     type: str = Field(..., pattern="^(INCOME|EXPENSE)$")
     notes: str | None = None
+    goal_id: int | None = Field(None, gt=0)
 
 
 class TransactionUpdate(BaseModel):
@@ -63,6 +64,7 @@ class TransactionUpdate(BaseModel):
     date: date_type | None = None
     type: str | None = Field(None, pattern="^(INCOME|EXPENSE)$")
     notes: str | None = None
+    goal_id: int | None = Field(None, gt=0)
 
 
 class SavingsGoalCreate(BaseModel):
@@ -95,6 +97,17 @@ class UserSettingsUpdate(BaseModel):
     preferred_currency: str | None = Field(None, pattern="^(vnd|usd|eur)$")
     avatar_url: str | None = None
     phone_number: str | None = None
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str = Field(..., min_length=1)
+    new_password: str = Field(..., min_length=8, max_length=72)
+
+
+class ProfilePhotoUpload(BaseModel):
+    image_base64: str = Field(..., min_length=1)
+    mime_type: str = Field("image/jpeg", pattern="^image/(jpeg|jpg|png|webp)$")
+    filename: str | None = Field(None, max_length=160)
 
 
 class ChatMessage(BaseModel):

@@ -108,6 +108,27 @@ export async function updateUserSettings(token, payload) {
   return response.data;
 }
 
+export async function changePassword(token, payload) {
+  const response = await api.put("/users/password", payload, { headers: authHeaders(token) });
+  return response.data;
+}
+
+export async function uploadProfilePhoto(token, payload) {
+  const response = await api.post("/users/profile-photo", payload, { headers: authHeaders(token) });
+  return response.data;
+}
+
+export function resolveMediaUrl(uri) {
+  if (!uri) return "";
+  if (/^https?:\/\//i.test(uri) || uri.startsWith("data:")) return uri;
+  try {
+    const root = new URL(baseURL);
+    return `${root.origin}${uri.startsWith("/") ? uri : `/${uri}`}`;
+  } catch {
+    return uri;
+  }
+}
+
 export async function getSavingsGoals(token) {
   const response = await api.get("/users/savings-goals", { headers: authHeaders(token) });
   return response.data;

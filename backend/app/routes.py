@@ -1,14 +1,20 @@
+import base64
+import binascii
 from datetime import date
 import math
+from pathlib import Path
+import re
 
 from fastapi import APIRouter, HTTPException, Header, Query, status
 from app.models import (
     CategoryCreate,
     CategoryUpdate,
+    ChangePasswordRequest,
     ChatRequest,
     ChatSectionCreate,
     ChatSectionUpdate,
     GoalContributionCreate,
+    ProfilePhotoUpload,
     SavingsGoalCreate,
     TransactionCreate,
     TransactionUpdate,
@@ -29,8 +35,10 @@ finance_router = APIRouter(tags=["finance"])
 TRANSACTION_COLUMNS = "id, user_id, vendor, category_id, amount, date, type, notes, created_at, updated_at"
 CATEGORY_COLUMNS = "id, user_id, category_name, monthly_limit, category_type, category_icon, created_at, updated_at"
 GOAL_COLUMNS = "id, user_id, category_id, title, target_amount, initial_amount, target_date, created_at, updated_at"
-CONTRIBUTION_COLUMNS = "id, goal_id, user_id, amount, date, note, created_at"
+CONTRIBUTION_COLUMNS = "id, goal_id, user_id, transaction_id, amount, date, note, created_at"
 CHAT_SECTION_COLUMNS = "id, user_id, name, created_at, updated_at"
+PROFILE_PHOTO_ROOT = Path(__file__).resolve().parents[1] / "uploads" / "profile_photos"
+STRONG_PASSWORD_PATTERN = re.compile(r"^(?=.*[A-Za-z])(?=.*\d)(?=.*[^A-Za-z\d]).{8,72}$")
 
 
 async def require_current_user_id(authorization: str | None) -> int:
@@ -119,6 +127,8 @@ def row_to_contribution(row) -> dict:
     contribution["id"] = str(contribution["id"])
     contribution["goal_id"] = str(contribution["goal_id"])
     contribution["user_id"] = str(contribution["user_id"])
+    if contribution.get("transaction_id") is not None:
+        contribution["transaction_id"] = str(contribution["transaction_id"])
     return contribution
 
 
@@ -172,6 +182,77 @@ async def get_or_create_goal_category(db, user_id: int, title: str) -> int:
         "flag-outline",
     )
     return row["id"]
+
+
+async def resolve_transaction_goal(db, user_id: int, category_id: int | None, transaction_type: str, requested_goal_id: int | None = None):
+    if transaction_type != "EXPENSE" or not requested_goal_id:
+        return None
+
+    return await get_user_goal(db, user_id, requested_goal_id)
+
+
+async def sync_goal_contribution_for_transaction(db, user_id: int, transaction: dict, requested_goal_id: int | None = None):
+    existing = await db.fetchrow(
+        """
+        SELECT id
+        FROM savings_goal_contributions
+        WHERE user_id = $1 AND transaction_id = $2
+        """,
+        user_id,
+        transaction["id"],
+    )
+    goal = await resolve_transaction_goal(
+        db,
+        user_id,
+        transaction.get("category_id"),
+        transaction.get("type"),
+        requested_goal_id,
+    )
+
+    if not goal:
+        if existing:
+            await db.execute(
+                """
+                DELETE FROM savings_goal_contributions
+                WHERE id = $1 AND user_id = $2
+                """,
+                existing["id"],
+                user_id,
+            )
+        return None
+
+    note = transaction.get("notes") or f"Savings goal contribution: {goal['title']}"
+    if existing:
+        row = await db.fetchrow(
+            f"""
+            UPDATE savings_goal_contributions
+            SET goal_id = $1, amount = $2, date = $3, note = $4
+            WHERE id = $5 AND user_id = $6
+            RETURNING {CONTRIBUTION_COLUMNS}
+            """,
+            goal["id"],
+            transaction["amount"],
+            transaction["date"],
+            note,
+            existing["id"],
+            user_id,
+        )
+        return row_to_contribution(row)
+
+    row = await db.fetchrow(
+        f"""
+        INSERT INTO savings_goal_contributions (goal_id, user_id, transaction_id, amount, date, note)
+        VALUES ($1, $2, $3, $4, $5, $6)
+        RETURNING {CONTRIBUTION_COLUMNS}
+        """,
+        goal["id"],
+        user_id,
+        transaction["id"],
+        transaction["amount"],
+        transaction["date"],
+        note,
+    )
+    return row_to_contribution(row)
 
 
 async def ensure_user_settings(db, user_id: int):
@@ -481,6 +562,86 @@ async def update_current_user_settings(update: UserSettingsUpdate, authorization
     return await get_current_user_settings(authorization)
 
 
+@finance_router.put("/users/password")
+async def change_password(payload: ChangePasswordRequest, authorization: str = Header(None)):
+    user_id = await require_current_user_id(authorization)
+    db = get_db()
+    if not db:
+        raise HTTPException(status_code=503, detail="Database service unavailable. Check server logs.")
+
+    if not STRONG_PASSWORD_PATTERN.match(payload.new_password):
+        raise HTTPException(
+            status_code=400,
+            detail="New password must be 8+ characters and include a letter, number, and special character",
+        )
+    if payload.current_password == payload.new_password:
+        raise HTTPException(status_code=400, detail="New password must be different from the current password")
+
+    user = await db.fetchrow(
+        "SELECT password_hash FROM users WHERE id = $1",
+        user_id,
+    )
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    if not verify_password(payload.current_password, user["password_hash"]):
+        raise HTTPException(status_code=401, detail="Current password is incorrect")
+
+    await db.execute(
+        """
+        UPDATE users
+        SET password_hash = $1, updated_at = CURRENT_TIMESTAMP
+        WHERE id = $2
+        """,
+        hash_password(payload.new_password),
+        user_id,
+    )
+    return {"updated": True}
+
+
+@finance_router.post("/users/profile-photo", response_model=UserResponse)
+async def upload_profile_photo(payload: ProfilePhotoUpload, authorization: str = Header(None)):
+    user_id = await require_current_user_id(authorization)
+    db = get_db()
+    if not db:
+        raise HTTPException(status_code=503, detail="Database service unavailable. Check server logs.")
+
+    image_base64 = payload.image_base64.strip()
+    if "," in image_base64 and image_base64.lower().startswith("data:image/"):
+        image_base64 = image_base64.split(",", 1)[1]
+
+    try:
+        content = base64.b64decode(image_base64, validate=True)
+    except (binascii.Error, ValueError):
+        raise HTTPException(status_code=400, detail="Profile photo data is not a valid image upload")
+
+    if not content:
+        raise HTTPException(status_code=400, detail="Profile photo is empty")
+    if len(content) > 5 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="Profile photo must be 5MB or smaller")
+
+    extension = {
+        "image/jpeg": "jpg",
+        "image/jpg": "jpg",
+        "image/png": "png",
+        "image/webp": "webp",
+    }.get(payload.mime_type, "jpg")
+    PROFILE_PHOTO_ROOT.mkdir(parents=True, exist_ok=True)
+    photo_path = PROFILE_PHOTO_ROOT / f"user_{user_id}.{extension}"
+    photo_path.write_bytes(content)
+    avatar_url = f"/uploads/profile_photos/{photo_path.name}"
+
+    await db.execute(
+        """
+        UPDATE users
+        SET avatar_url = $1, updated_at = CURRENT_TIMESTAMP
+        WHERE id = $2
+        """,
+        avatar_url,
+        user_id,
+    )
+    return await get_current_user(authorization)
+
+
 @finance_router.get("/users/categories")
 async def get_categories(authorization: str = Header(None)):
     user_id = await require_current_user_id(authorization)
@@ -589,6 +750,24 @@ async def delete_category(category_id: int, authorization: str = Header(None)):
         raise HTTPException(status_code=503, detail="Database service unavailable. Check server logs.")
 
     existing = await get_user_category(db, user_id, category_id)
+    transaction_rows = await db.fetch(
+        """
+        SELECT id
+        FROM transactions
+        WHERE category_id = $1 AND user_id = $2
+        """,
+        category_id,
+        user_id,
+    )
+    for transaction in transaction_rows:
+        await db.execute(
+            """
+            DELETE FROM savings_goal_contributions
+            WHERE transaction_id = $1 AND user_id = $2
+            """,
+            transaction["id"],
+            user_id,
+        )
     row = await db.fetchrow(
         """
         DELETE FROM categories
@@ -670,7 +849,11 @@ async def create_transaction(transaction: TransactionCreate, authorization: str 
     if not db:
         raise HTTPException(status_code=503, detail="Database service unavailable. Check server logs.")
 
-    await ensure_user_category(db, user_id, transaction.category_id)
+    category_id = transaction.category_id
+    if transaction.goal_id:
+        goal = await get_user_goal(db, user_id, transaction.goal_id)
+        category_id = goal.get("category_id") or await get_or_create_goal_category(db, user_id, goal["title"])
+    await ensure_user_category(db, user_id, category_id)
     row = await db.fetchrow(
         f"""
         INSERT INTO transactions (user_id, vendor, category_id, amount, date, type, notes)
@@ -679,12 +862,13 @@ async def create_transaction(transaction: TransactionCreate, authorization: str 
         """,
         user_id,
         transaction.vendor,
-        transaction.category_id,
+        category_id,
         transaction.amount,
         transaction.date.isoformat(),
         transaction.type,
         transaction.notes,
     )
+    await sync_goal_contribution_for_transaction(db, user_id, dict(row), transaction.goal_id)
     return dict(row)
 
 
@@ -706,34 +890,50 @@ async def update_transaction(transaction_id: int, transaction: TransactionUpdate
     if not db:
         raise HTTPException(status_code=503, detail="Database service unavailable. Check server logs.")
 
-    await get_user_transaction(db, user_id, transaction_id)
+    existing_transaction = await get_user_transaction(db, user_id, transaction_id)
     updates = transaction.model_dump(exclude_unset=True)
-    if not updates:
+    goal_was_provided = "goal_id" in updates
+    requested_goal_id = updates.pop("goal_id", None)
+    if not updates and not goal_was_provided:
         raise HTTPException(status_code=400, detail="No transaction fields provided")
+    if requested_goal_id:
+        goal = await get_user_goal(db, user_id, requested_goal_id)
+        updates["category_id"] = goal.get("category_id") or await get_or_create_goal_category(db, user_id, goal["title"])
     if "category_id" in updates:
         await ensure_user_category(db, user_id, updates["category_id"])
     if "date" in updates and updates["date"] is not None:
         updates["date"] = updates["date"].isoformat()
 
-    set_parts = []
-    values = []
-    for index, (field, value) in enumerate(updates.items(), start=1):
-        set_parts.append(f"{field} = ${index}")
-        values.append(value)
+    if updates:
+        set_parts = []
+        values = []
+        for index, (field, value) in enumerate(updates.items(), start=1):
+            set_parts.append(f"{field} = ${index}")
+            values.append(value)
 
-    values.extend([transaction_id, user_id])
-    transaction_id_param = len(values) - 1
-    user_id_param = len(values)
-    row = await db.fetchrow(
-        f"""
-        UPDATE transactions
-        SET {", ".join(set_parts)}, updated_at = CURRENT_TIMESTAMP
-        WHERE id = ${transaction_id_param} AND user_id = ${user_id_param}
-        RETURNING {TRANSACTION_COLUMNS}
-        """,
-        *values,
+        values.extend([transaction_id, user_id])
+        transaction_id_param = len(values) - 1
+        user_id_param = len(values)
+        row = await db.fetchrow(
+            f"""
+            UPDATE transactions
+            SET {", ".join(set_parts)}, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ${transaction_id_param} AND user_id = ${user_id_param}
+            RETURNING {TRANSACTION_COLUMNS}
+            """,
+            *values,
+        )
+        transaction_row = dict(row)
+    else:
+        transaction_row = existing_transaction
+
+    await sync_goal_contribution_for_transaction(
+        db,
+        user_id,
+        transaction_row,
+        requested_goal_id if goal_was_provided else None,
     )
-    return dict(row)
+    return transaction_row
 
 
 @finance_router.delete("/transactions/{transaction_id}")
@@ -743,6 +943,14 @@ async def delete_transaction(transaction_id: int, authorization: str = Header(No
     if not db:
         raise HTTPException(status_code=503, detail="Database service unavailable. Check server logs.")
 
+    await db.execute(
+        """
+        DELETE FROM savings_goal_contributions
+        WHERE transaction_id = $1 AND user_id = $2
+        """,
+        transaction_id,
+        user_id,
+    )
     row = await db.fetchrow(
         """
         DELETE FROM transactions
@@ -916,18 +1124,6 @@ async def create_goal_contribution(goal_id: int, contribution: GoalContributionC
             user_id,
         )
 
-    row = await db.fetchrow(
-        f"""
-        INSERT INTO savings_goal_contributions (goal_id, user_id, amount, date, note)
-        VALUES ($1, $2, $3, $4, $5)
-        RETURNING {CONTRIBUTION_COLUMNS}
-        """,
-        goal_id,
-        user_id,
-        contribution.amount,
-        contribution_date.isoformat(),
-        contribution.note,
-    )
     transaction_row = await db.fetchrow(
         """
         INSERT INTO transactions (user_id, vendor, category_id, amount, date, type, notes)
@@ -942,19 +1138,19 @@ async def create_goal_contribution(goal_id: int, contribution: GoalContributionC
         "EXPENSE",
         contribution.note or f"Savings goal contribution: {goal['title']}",
     )
-    try:
-        await db.execute(
-            """
-            UPDATE savings_goal_contributions
-            SET transaction_id = $1
-            WHERE id = $2 AND user_id = $3
-            """,
-            transaction_row["id"],
-            row["id"],
-            user_id,
-        )
-    except Exception:
-        pass
+    row = await db.fetchrow(
+        f"""
+        INSERT INTO savings_goal_contributions (goal_id, user_id, transaction_id, amount, date, note)
+        VALUES ($1, $2, $3, $4, $5, $6)
+        RETURNING {CONTRIBUTION_COLUMNS}
+        """,
+        goal_id,
+        user_id,
+        transaction_row["id"],
+        contribution.amount,
+        contribution_date.isoformat(),
+        contribution.note,
+    )
     return row_to_contribution(row)
 
 

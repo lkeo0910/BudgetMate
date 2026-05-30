@@ -76,9 +76,10 @@ New accounts can register and login, but they start with no transactions or fina
 
 - Dashboard, budget, transactions, categories, and reports
 - Accounts overview from transaction data
-- Savings goals and contributions
+- Savings goals, separate goal creation, and transaction-linked goal progress
 - BudgetMate AI chat
-- Profile and settings
+- Profile, settings, change password, and profile photo upload
+- Calendar date range picker on dashboard and reports
 
 ## Tests
 

@@ -92,6 +92,7 @@ class BudgetMateApiSmokeTest(unittest.TestCase):
             )
             self.assertEqual(goal.status_code, 201)
             goal_id = goal.json()["id"]
+            goal_category_id = goal.json()["category_id"]
 
             contribution = client.post(
                 f"/api/v1/users/savings-goals/{goal_id}/contributions",
@@ -99,6 +100,76 @@ class BudgetMateApiSmokeTest(unittest.TestCase):
                 json={"amount": 250000},
             )
             self.assertEqual(contribution.status_code, 201)
+            self.assertIsNotNone(contribution.json()["transaction_id"])
+
+            linked_transaction = client.post(
+                "/api/v1/transactions",
+                headers=headers,
+                json={
+                    "vendor": "Emergency fund",
+                    "category_id": int(goal_category_id),
+                    "goal_id": int(goal_id),
+                    "amount": 500000,
+                    "date": "2026-05-29",
+                    "type": "EXPENSE",
+                    "notes": "linked from transactions page",
+                },
+            )
+            self.assertEqual(linked_transaction.status_code, 201)
+            linked_transaction_id = linked_transaction.json()["id"]
+            goals_after_transaction = client.get("/api/v1/users/savings-goals", headers=headers)
+            linked_rows = [
+                item for item in goals_after_transaction.json()["contributions"]
+                if item.get("transaction_id") == str(linked_transaction_id)
+            ]
+            self.assertEqual(len(linked_rows), 1)
+            self.assertEqual(linked_rows[0]["amount"], 500000)
+
+            updated_linked_transaction = client.put(
+                f"/api/v1/transactions/{linked_transaction_id}",
+                headers=headers,
+                json={"amount": 600000, "goal_id": int(goal_id)},
+            )
+            self.assertEqual(updated_linked_transaction.status_code, 200)
+            goals_after_update = client.get("/api/v1/users/savings-goals", headers=headers)
+            updated_rows = [
+                item for item in goals_after_update.json()["contributions"]
+                if item.get("transaction_id") == str(linked_transaction_id)
+            ]
+            self.assertEqual(updated_rows[0]["amount"], 600000)
+
+            deleted_linked_transaction = client.delete(f"/api/v1/transactions/{linked_transaction_id}", headers=headers)
+            self.assertEqual(deleted_linked_transaction.status_code, 200)
+            goals_after_delete = client.get("/api/v1/users/savings-goals", headers=headers)
+            deleted_rows = [
+                item for item in goals_after_delete.json()["contributions"]
+                if item.get("transaction_id") == str(linked_transaction_id)
+            ]
+            self.assertEqual(deleted_rows, [])
+
+            password = client.put(
+                "/api/v1/users/password",
+                headers=headers,
+                json={"current_password": "password123", "new_password": "Password123!"},
+            )
+            self.assertEqual(password.status_code, 200)
+            relogin = client.post(
+                "/api/v1/auth/login",
+                json={"username": "demo_user", "password": "Password123!"},
+            )
+            self.assertEqual(relogin.status_code, 200)
+
+            photo = client.post(
+                "/api/v1/users/profile-photo",
+                headers=headers,
+                json={
+                    "image_base64": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+                    "mime_type": "image/png",
+                    "filename": "tiny.png",
+                },
+            )
+            self.assertEqual(photo.status_code, 200)
+            self.assertIn("/uploads/profile_photos/user_", photo.json()["avatar_url"])
 
             section = client.post("/api/v1/chatbot/sections", headers=headers, json={})
             self.assertEqual(section.status_code, 201)

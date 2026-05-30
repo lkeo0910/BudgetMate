@@ -14,9 +14,11 @@ import ReportsScreen from "./src/screens/ReportsScreen";
 import MoreScreen from "./src/screens/MoreScreen";
 import AccountsScreen from "./src/screens/AccountsScreen";
 import GoalsScreen from "./src/screens/GoalsScreen";
+import NewGoalScreen from "./src/screens/NewGoalScreen";
 import AssistantScreen from "./src/screens/AssistantScreen";
 import ProfileScreen from "./src/screens/ProfileScreen";
-import SettingsScreen from "./src/screens/SettingsScreen";
+import ChangePasswordScreen from "./src/screens/ChangePasswordScreen";
+import ChangeProfilePhotoScreen from "./src/screens/ChangeProfilePhotoScreen";
 import { AuthProvider } from "./src/context/AuthContext";
 import { colors } from "./src/theme";
 
@@ -28,7 +30,18 @@ const iconMap = {
   Transactions: ["receipt", "receipt-outline"],
   Categories: ["pricetags", "pricetags-outline"],
   Reports: ["analytics", "analytics-outline"],
+  Goals: ["flag", "flag-outline"],
   More: ["grid", "grid-outline"]
+};
+
+const tabLabelMap = {
+  Dashboard: "Home",
+  Budget: "Budget",
+  Transactions: "Txns",
+  Categories: "Cats",
+  Reports: "Report",
+  Goals: "Goals",
+  More: "More"
 };
 
 const AUTH_STORAGE_KEY = "budgetmate.auth";
@@ -39,7 +52,7 @@ const hiddenTabOptions = {
 
 function AppTabs() {
   const { width } = useWindowDimensions();
-  const compactTabs = width < 375;
+  const compactTabs = width < 430;
 
   return (
     <NavigationContainer>
@@ -49,8 +62,9 @@ function AppTabs() {
           headerShown: false,
           tabBarActiveTintColor: colors.primary,
           tabBarInactiveTintColor: colors.muted,
-          tabBarShowLabel: !compactTabs,
-          tabBarLabelStyle: { fontSize: 10, fontWeight: "800" },
+          tabBarShowLabel: true,
+          tabBarLabel: tabLabelMap[route.name] || route.name,
+          tabBarLabelStyle: { fontSize: compactTabs ? 9 : 10, fontWeight: "800" },
           tabBarStyle: {
             height: compactTabs ? 62 : 72,
             paddingTop: 8,
@@ -75,12 +89,14 @@ function AppTabs() {
         <Tab.Screen name="Transactions" component={TransactionsScreen} />
         <Tab.Screen name="Categories" component={CategoriesScreen} />
         <Tab.Screen name="Reports" component={ReportsScreen} />
+        <Tab.Screen name="Goals" component={GoalsScreen} />
         <Tab.Screen name="More" component={MoreScreen} />
         <Tab.Screen name="Accounts" component={AccountsScreen} options={hiddenTabOptions} />
-        <Tab.Screen name="Goals" component={GoalsScreen} options={hiddenTabOptions} />
+        <Tab.Screen name="NewGoal" component={NewGoalScreen} options={hiddenTabOptions} />
         <Tab.Screen name="Assistant" component={AssistantScreen} options={hiddenTabOptions} />
         <Tab.Screen name="Profile" component={ProfileScreen} options={hiddenTabOptions} />
-        <Tab.Screen name="Settings" component={SettingsScreen} options={hiddenTabOptions} />
+        <Tab.Screen name="ChangePassword" component={ChangePasswordScreen} options={hiddenTabOptions} />
+        <Tab.Screen name="ChangeProfilePhoto" component={ChangeProfilePhotoScreen} options={hiddenTabOptions} />
       </Tab.Navigator>
     </NavigationContainer>
   );

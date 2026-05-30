@@ -1,14 +1,24 @@
 import React, { useMemo, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from "react-native";
+import { Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import Svg, { Circle, G, Line, Path, Rect, Text as SvgText } from "react-native-svg";
 import { Card, EmptyState } from "../components/Card";
+import { DateRangePicker } from "../components/DateRangePicker";
 import { Screen } from "../components/Layout";
 import { formatVND } from "../data/finance";
 import { useFinanceData } from "../hooks/useFinanceData";
 import { colors } from "../theme";
+import {
+  filterTransactionsByDate,
+  formatDisplayDate,
+  getRangeLabel,
+  getReportRangeBounds,
+  getTotals,
+  groupByCategory,
+  parseDateValue,
+  startOfDay
+} from "../utils/reporting";
 
-const reportColors = ["#14b8a6", "#22c55e", "#f59e0b", "#3b82f6", "#8b5cf6", "#ef4444"];
 const rangeOptions = [
   ["1w", "1W"],
   ["1m", "1M"],
@@ -34,13 +44,14 @@ export default function ReportsScreen() {
   const { width } = useWindowDimensions();
   const [range, setRange] = useState("1m");
   const [customRange, setCustomRange] = useState({ from: "", to: "" });
+  const [datePickerOpen, setDatePickerOpen] = useState(false);
   const [mode, setMode] = useState("overview");
   const [selectedPoint, setSelectedPoint] = useState(null);
   const isWide = width >= 720;
   const chartWidth = Math.min(Math.max(width - 64, 256), isWide ? 760 : 366);
 
-  const rangeBounds = useMemo(() => getRangeBounds(range, transactions, customRange), [customRange, range, transactions]);
-  const filteredTransactions = useMemo(() => filterTransactions(transactions, rangeBounds), [rangeBounds, transactions]);
+  const rangeBounds = useMemo(() => getReportRangeBounds(range, transactions, customRange), [customRange, range, transactions]);
+  const filteredTransactions = useMemo(() => filterTransactionsByDate(transactions, rangeBounds), [rangeBounds, transactions]);
   const bucketMode = useMemo(() => getBucketMode(range, rangeBounds), [range, rangeBounds]);
   const cashflowData = useMemo(() => buildCashflowData(filteredTransactions, bucketMode), [bucketMode, filteredTransactions]);
   const totals = useMemo(() => getTotals(filteredTransactions), [filteredTransactions]);
@@ -63,40 +74,21 @@ export default function ReportsScreen() {
         </View>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.rangeButtons}>
           {rangeOptions.map(([id, label]) => (
-            <Pressable key={id} style={[styles.rangeButton, range === id && styles.rangeActive]} onPress={() => setRange(id)}>
+            <Pressable key={id} style={[styles.rangeButton, range === id && styles.rangeActive]} onPress={() => { setRange(id); setSelectedPoint(null); }}>
               <Text style={[styles.rangeText, range === id && styles.rangeTextActive]}>{label}</Text>
             </Pressable>
           ))}
         </ScrollView>
         <View style={styles.customRangeBlock}>
-          <Pressable style={[styles.customRangeButton, range === "custom" && styles.rangeActive]} onPress={() => setRange("custom")}>
+          <Pressable style={[styles.customRangeButton, range === "custom" && styles.rangeActive]} onPress={() => { setRange("custom"); setDatePickerOpen(true); setSelectedPoint(null); }}>
             <Ionicons name="calendar-number-outline" color={range === "custom" ? colors.surface : colors.ink} size={15} />
-            <Text style={[styles.rangeText, range === "custom" && styles.rangeTextActive]}>Custom</Text>
+            <Text style={[styles.rangeText, range === "custom" && styles.rangeTextActive]}>{range === "custom" && customRange.from && customRange.to ? "Edit Custom" : "Custom"}</Text>
           </Pressable>
           {range === "custom" ? (
-            <View style={styles.customFields}>
-              <View style={styles.customField}>
-                <Text style={styles.customFieldLabel}>From</Text>
-                <TextInput
-                  value={customRange.from}
-                  onChangeText={(value) => setCustomRange((current) => ({ ...current, from: value }))}
-                  placeholder="YYYY-MM-DD"
-                  placeholderTextColor={colors.muted}
-                  keyboardType="numbers-and-punctuation"
-                  style={styles.customInput}
-                />
-              </View>
-              <View style={styles.customField}>
-                <Text style={styles.customFieldLabel}>To</Text>
-                <TextInput
-                  value={customRange.to}
-                  onChangeText={(value) => setCustomRange((current) => ({ ...current, to: value }))}
-                  placeholder="YYYY-MM-DD"
-                  placeholderTextColor={colors.muted}
-                  keyboardType="numbers-and-punctuation"
-                  style={styles.customInput}
-                />
-              </View>
+            <View style={[styles.customFields, rangeBounds.error && styles.customFieldsError]}>
+              <Text style={styles.customFieldLabel}>Selected Range</Text>
+              <Text style={styles.customValue}>{customRange.from && customRange.to ? `${customRange.from} to ${customRange.to}` : "No custom date range selected"}</Text>
+              {!!rangeBounds.error && <Text style={styles.customError}>{rangeBounds.error}</Text>}
             </View>
           ) : null}
         </View>
@@ -203,6 +195,18 @@ export default function ReportsScreen() {
         <Highlight title="Strongest Period" item={strongest} positive />
         <Highlight title="Weakest Period" item={weakest} />
       </Card>
+
+      <DateRangePicker
+        open={datePickerOpen}
+        range={customRange}
+        title="Report Date Range"
+        onApply={(nextRange) => {
+          setCustomRange(nextRange);
+          setRange("custom");
+          setSelectedPoint(null);
+        }}
+        onClose={() => setDatePickerOpen(false)}
+      />
     </Screen>
   );
 }
@@ -896,19 +900,11 @@ function Highlight({ title, item, positive }) {
   );
 }
 
-function filterTransactions(transactions, bounds) {
-  return transactions.filter((item) => {
-    const date = parseDate(item.date);
-    if (bounds.from && date < bounds.from) return false;
-    if (bounds.to && date > bounds.to) return false;
-    return true;
-  }).sort(sortByDate);
-}
-
 function buildCashflowData(transactions, bucketMode) {
   const buckets = new Map();
   transactions.forEach((item) => {
-    const date = parseDate(item.date);
+    const date = parseDateValue(item.date);
+    if (!date) return;
     const key = getBucketKey(date, bucketMode);
     const label = getBucketLabel(date, bucketMode);
     const current = buckets.get(key) || { key, label, sortDate: date, income: 0, expense: 0, net: 0 };
@@ -918,26 +914,6 @@ function buildCashflowData(transactions, bucketMode) {
     buckets.set(key, current);
   });
   return Array.from(buckets.values()).sort((a, b) => a.sortDate - b.sortDate);
-}
-
-function getTotals(transactions) {
-  const income = transactions.filter((item) => item.type === "INCOME").reduce((sum, item) => sum + item.amount, 0);
-  const expense = transactions.filter((item) => item.type === "EXPENSE").reduce((sum, item) => sum + item.amount, 0);
-  const net = income - expense;
-  return { income, expense, net, savingsRate: income > 0 ? (net / income) * 100 : 0 };
-}
-
-function groupByCategory(transactions, categories, type, limit = Infinity) {
-  const map = new Map();
-  transactions
-    .filter((item) => item.type === type)
-    .forEach((item) => {
-      map.set(item.category, (map.get(item.category) || 0) + item.amount);
-    });
-  return Array.from(map.entries())
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, limit)
-    .map(([name, value], index) => ({ name, value, color: type === "EXPENSE" ? reportColors[index % reportColors.length] : categories.find((item) => item.name === name)?.color || "#10b981" }));
 }
 
 function describeArc(cx, cy, radius, startAngle, endAngle) {
@@ -964,28 +940,6 @@ function shortDateLabel(label) {
   return String(label).replace(/, 202\d$/, "").replace(/ 202\d$/, "");
 }
 
-function getRangeBounds(range, transactions, customRange = {}) {
-  if (range === "custom") {
-    return {
-      from: parseInputDate(customRange.from),
-      to: parseInputDate(customRange.to)
-    };
-  }
-
-  if (range === "all") {
-    const dates = transactions.map((item) => parseDate(item.date)).filter((item) => !Number.isNaN(item.getTime())).sort((a, b) => a - b);
-    return { from: dates[0] || null, to: dates[dates.length - 1] || null };
-  }
-
-  const to = startOfDay(new Date());
-  const from = new Date(to);
-  if (range === "1w") from.setDate(to.getDate() - 6);
-  if (range === "1m") from.setMonth(to.getMonth() - 1);
-  if (range === "6m") from.setMonth(to.getMonth() - 5);
-  if (range === "12m") from.setMonth(to.getMonth() - 11);
-  return { from: startOfDay(from), to };
-}
-
 function getBucketMode(range, bounds) {
   if (range === "1w" || range === "1m" || range === "custom") return "day";
   if (range === "6m") return "week";
@@ -995,28 +949,6 @@ function getBucketMode(range, bounds) {
     if (days <= 120) return "week";
   }
   return "month";
-}
-
-function getRangeLabel(bounds) {
-  if (bounds.from && !bounds.to) return `${formatDateLabel(bounds.from)} - Select end date`;
-  if (!bounds.from && bounds.to) return `Select start date - ${formatDateLabel(bounds.to)}`;
-  if (!bounds.from || !bounds.to) return "Select report range";
-  return `${formatDateLabel(bounds.from)} - ${formatDateLabel(bounds.to)}`;
-}
-
-function parseInputDate(value) {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(value || ""))) return null;
-  const date = parseDate(value);
-  return Number.isNaN(date.getTime()) ? null : startOfDay(date);
-}
-
-function parseDate(value) {
-  const [year, month, day] = String(value).split("-").map(Number);
-  return new Date(year, month - 1, day);
-}
-
-function startOfDay(value) {
-  return new Date(value.getFullYear(), value.getMonth(), value.getDate());
 }
 
 function getBucketKey(date, mode) {
@@ -1034,17 +966,9 @@ function getBucketLabel(date, mode) {
   if (mode === "week") {
     const weekStart = startOfDay(date);
     weekStart.setDate(date.getDate() - date.getDay());
-    return formatDateLabel(weekStart);
+    return formatDisplayDate(weekStart);
   }
-  return formatDateLabel(date);
-}
-
-function formatDateLabel(value) {
-  return value.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
-}
-
-function sortByDate(a, b) {
-  return parseDate(a.date) - parseDate(b.date);
+  return formatDisplayDate(date);
 }
 
 const styles = StyleSheet.create({
@@ -1060,8 +984,11 @@ const styles = StyleSheet.create({
   customRangeBlock: { marginTop: 10, gap: 10 },
   customRangeButton: { minHeight: 38, alignSelf: "flex-start", borderRadius: 8, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, alignItems: "center", justifyContent: "center", paddingHorizontal: 12, flexDirection: "row", gap: 6 },
   customFields: { borderRadius: 12, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, padding: 10, gap: 10 },
+  customFieldsError: { borderColor: "#fecdd3", backgroundColor: "#fff1f2" },
   customField: { gap: 5 },
   customFieldLabel: { color: colors.muted, fontSize: 10, fontWeight: "900", textTransform: "uppercase" },
+  customValue: { color: colors.ink, fontWeight: "900" },
+  customError: { color: colors.rose, fontWeight: "800", lineHeight: 18 },
   customInput: { minHeight: 38, borderRadius: 8, borderWidth: 1, borderColor: colors.border, color: colors.ink, fontWeight: "800", paddingHorizontal: 10, backgroundColor: "#f8fafc" },
   statsGrid: { paddingHorizontal: 16, paddingTop: 14, gap: 8 },
   statCard: { width: 148, minHeight: 82, borderRadius: 12, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, padding: 10, flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 8 },

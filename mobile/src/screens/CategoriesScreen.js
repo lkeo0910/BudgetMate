@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from "react";
-import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { Modal, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { Card, EmptyState } from "../components/Card";
 import { Screen } from "../components/Layout";
@@ -14,13 +14,14 @@ const emptyForm = { name: "", type: "expense", icon: "cart-outline" };
 
 export default function CategoriesScreen() {
   const auth = useAuth();
-  const { categories, error, loading, refresh } = useFinanceData();
+  const { categories, error, loading, refresh, transactions } = useFinanceData();
   const [form, setForm] = useState(emptyForm);
   const [editingId, setEditingId] = useState(null);
   const [filter, setFilter] = useState("all");
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState("");
   const [listError, setListError] = useState("");
+  const [pendingDelete, setPendingDelete] = useState(null);
 
   const rows = useMemo(
     () => categories.filter((item) => filter === "all" || item.type === filter),
@@ -71,6 +72,16 @@ export default function CategoriesScreen() {
     }
   }
 
+  function requestRemoveCategory(item) {
+    setListError("");
+    const usedCount = transactions.filter((transaction) => String(transaction.categoryId) === String(item.id)).length;
+    if (usedCount > 0) {
+      setPendingDelete({ ...item, usedCount });
+      return;
+    }
+    removeCategory(item);
+  }
+
   async function removeCategory(item) {
     setListError("");
     setSaving(true);
@@ -84,6 +95,7 @@ export default function CategoriesScreen() {
       setListError(err.response?.data?.detail || err.message || "Could not delete category.");
     } finally {
       setSaving(false);
+      setPendingDelete(null);
     }
   }
 
@@ -165,7 +177,7 @@ export default function CategoriesScreen() {
               <Ionicons name="pencil-outline" color={colors.ink} size={15} />
               <Text style={styles.smallButtonText}>Edit</Text>
             </Pressable>
-            <Pressable style={styles.smallButton} onPress={() => removeCategory(item)}>
+            <Pressable style={styles.smallButton} onPress={() => requestRemoveCategory(item)}>
               <Ionicons name="trash-outline" color={colors.ink} size={15} />
               <Text style={styles.smallButtonText}>Delete</Text>
             </Pressable>
@@ -173,7 +185,40 @@ export default function CategoriesScreen() {
         ))}
         {!rows.length && <Text style={styles.emptyInline}>No categories yet. Create a category first, then you can add transactions.</Text>}
       </Card>
+
+      <DeleteCategoryModal
+        category={pendingDelete}
+        saving={saving}
+        onCancel={() => setPendingDelete(null)}
+        onConfirm={() => pendingDelete && removeCategory(pendingDelete)}
+      />
     </Screen>
+  );
+}
+
+function DeleteCategoryModal({ category, saving, onCancel, onConfirm }) {
+  return (
+    <Modal animationType="fade" transparent visible={!!category} onRequestClose={onCancel}>
+      <View style={styles.confirmBackdrop}>
+        <View style={styles.confirmPanel}>
+          <View style={styles.confirmIcon}>
+            <Ionicons name="warning-outline" color={colors.rose} size={26} />
+          </View>
+          <Text style={styles.confirmTitle}>Delete used category?</Text>
+          <Text style={styles.confirmCopy}>
+            This category is already used by existing transactions. If you delete this category, all related transactions will also be deleted. Are you sure you want to continue?
+          </Text>
+          <View style={styles.confirmActions}>
+            <Pressable style={styles.confirmCancel} disabled={saving} onPress={onCancel}>
+              <Text style={styles.confirmCancelText}>Cancel</Text>
+            </Pressable>
+            <Pressable style={[styles.confirmDelete, saving && styles.disabled]} disabled={saving} onPress={onConfirm}>
+              <Text style={styles.confirmDeleteText}>{saving ? "Deleting..." : "Delete category and related transactions"}</Text>
+            </Pressable>
+          </View>
+        </View>
+      </View>
+    </Modal>
   );
 }
 
@@ -214,5 +259,15 @@ const styles = StyleSheet.create({
   incomeText: { color: colors.success },
   smallButton: { minHeight: 34, borderRadius: 7, borderWidth: 1, borderColor: colors.border, paddingHorizontal: 10, flexDirection: "row", alignItems: "center", gap: 6 },
   smallButtonText: { color: colors.ink, fontWeight: "800", fontSize: 12 },
-  emptyInline: { color: colors.muted, fontWeight: "800", lineHeight: 20, marginTop: 16 }
+  emptyInline: { color: colors.muted, fontWeight: "800", lineHeight: 20, marginTop: 16 },
+  confirmBackdrop: { flex: 1, backgroundColor: "rgba(15,23,42,0.45)", justifyContent: "center", padding: 16 },
+  confirmPanel: { borderRadius: 12, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, padding: 18 },
+  confirmIcon: { width: 48, height: 48, borderRadius: 16, backgroundColor: "#fff1f2", alignItems: "center", justifyContent: "center" },
+  confirmTitle: { color: colors.ink, fontSize: 20, fontWeight: "900", marginTop: 12 },
+  confirmCopy: { color: colors.text, lineHeight: 21, fontWeight: "700", marginTop: 8 },
+  confirmActions: { gap: 10, marginTop: 18 },
+  confirmCancel: { minHeight: 46, borderRadius: 10, borderWidth: 1, borderColor: colors.border, alignItems: "center", justifyContent: "center" },
+  confirmCancelText: { color: colors.ink, fontWeight: "900" },
+  confirmDelete: { minHeight: 48, borderRadius: 10, backgroundColor: colors.rose, alignItems: "center", justifyContent: "center", paddingHorizontal: 12 },
+  confirmDeleteText: { color: colors.surface, fontWeight: "900", textAlign: "center" }
 });

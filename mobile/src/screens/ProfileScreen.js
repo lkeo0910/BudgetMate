@@ -1,9 +1,9 @@
 import React, { useEffect, useState } from "react";
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Image, Pressable, StyleSheet, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { Card, EmptyState } from "../components/Card";
 import { Screen } from "../components/Layout";
-import { getCurrentUser } from "../api/client";
+import { getCurrentUser, resolveMediaUrl } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import { colors } from "../theme";
 
@@ -31,6 +31,7 @@ export default function ProfileScreen() {
   }, []);
 
   const initials = (user?.username || "BM").slice(0, 2).toUpperCase();
+  const avatarUri = resolveMediaUrl(user?.avatar_url);
 
   return (
     <Screen eyebrow="Profile" title="Profile" refreshing={loading} onRefresh={load}>
@@ -41,7 +42,7 @@ export default function ProfileScreen() {
         <>
           <Card style={styles.hero}>
             <View style={styles.avatar}>
-              <Text style={styles.avatarText}>{initials}</Text>
+              {avatarUri ? <Image source={{ uri: avatarUri }} style={styles.avatarImage} /> : <Text style={styles.avatarText}>{initials}</Text>}
             </View>
             <Text style={styles.username}>{user?.username}</Text>
             <Text style={styles.meta}>Joined March 2024 • Verified Account</Text>
@@ -87,7 +88,8 @@ function Detail({ icon, label, value }) {
 
 const styles = StyleSheet.create({
   hero: { alignItems: "center" },
-  avatar: { width: 96, height: 96, borderRadius: 30, backgroundColor: colors.primary, alignItems: "center", justifyContent: "center" },
+  avatar: { width: 96, height: 96, borderRadius: 30, backgroundColor: colors.primary, alignItems: "center", justifyContent: "center", overflow: "hidden" },
+  avatarImage: { width: "100%", height: "100%" },
   avatarText: { color: colors.surface, fontWeight: "900", fontSize: 30 },
   username: { color: colors.ink, fontSize: 25, fontWeight: "900", marginTop: 14 },
   meta: { color: colors.muted, marginTop: 6, fontWeight: "700", textAlign: "center" },

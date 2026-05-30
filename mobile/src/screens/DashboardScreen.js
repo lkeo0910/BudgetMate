@@ -3,23 +3,42 @@ import { Pressable, StyleSheet, Text, View, useWindowDimensions } from "react-na
 import { Ionicons } from "@expo/vector-icons";
 import Svg, { Circle, Line, Path, Rect, Text as SvgText } from "react-native-svg";
 import { Card, EmptyState, SectionTitle } from "../components/Card";
+import { DateRangePicker } from "../components/DateRangePicker";
 import { ProgressBar } from "../components/FinanceUI";
 import { Screen } from "../components/Layout";
 import { formatVND } from "../data/finance";
 import { useFinanceData } from "../hooks/useFinanceData";
 import { useSavingsGoals } from "../hooks/useSavingsGoals";
 import { colors } from "../theme";
+import {
+  filterTransactionsByDate,
+  getDashboardRangeBounds,
+  getPreviousRange,
+  getRangeLabel,
+  groupByCategory
+} from "../utils/reporting";
 
 export default function DashboardScreen() {
   const { categories, error, hasData, loading, refresh, summary, transactions } = useFinanceData();
   const { goals, loading: goalsLoading, refresh: refreshGoals } = useSavingsGoals();
   const { width } = useWindowDimensions();
   const [preset, setPreset] = useState("month");
+  const [customRange, setCustomRange] = useState({ from: "", to: "" });
+  const [datePickerOpen, setDatePickerOpen] = useState(false);
   const [selectedForecast, setSelectedForecast] = useState(null);
 
-  const { currentTransactions, previousTransactions } = useMemo(
-    () => getTransactionsForPreset(transactions, preset),
-    [preset, transactions]
+  const rangeBounds = useMemo(
+    () => getDashboardRangeBounds(preset, customRange),
+    [customRange, preset]
+  );
+  const previousRangeBounds = useMemo(() => getPreviousRange(rangeBounds), [rangeBounds]);
+  const currentTransactions = useMemo(
+    () => filterTransactionsByDate(transactions, rangeBounds),
+    [rangeBounds, transactions]
+  );
+  const previousTransactions = useMemo(
+    () => filterTransactionsByDate(transactions, previousRangeBounds),
+    [previousRangeBounds, transactions]
   );
   const dashboardSummary = useMemo(
     () => getTransactionSummary(currentTransactions, categories),
@@ -40,10 +59,10 @@ export default function DashboardScreen() {
 
   const recent = currentTransactions.slice(0, 6);
   const expenseCategories = categoryActivity.filter((item) => item.type === "expense");
-  const spendingRows = expenseCategories
-    .filter((item) => item.activity > 0)
-    .sort((a, b) => b.activity - a.activity)
-    .slice(0, 5);
+  const spendingRows = useMemo(
+    () => groupByCategory(currentTransactions, categories, "EXPENSE", 5),
+    [categories, currentTransactions]
+  );
   const budgetRows = expenseCategories.slice(0, 3);
 
   const forecastPoints = useMemo(() => buildForecastPoints(currentTransactions), [currentTransactions]);
@@ -62,11 +81,19 @@ export default function DashboardScreen() {
             <Text style={[styles.rangeText, preset === item && styles.rangeTextActive]}>{capitalize(item)}</Text>
           </Pressable>
         ))}
-        <Pressable style={styles.rangeButton} onPress={() => setPreset("custom")}>
+        <Pressable style={[styles.rangeButton, preset === "custom" && styles.rangeActive]} onPress={() => { setPreset("custom"); setDatePickerOpen(true); }}>
           <Ionicons name="calendar-outline" color={preset === "custom" ? colors.surface : colors.text} size={15} />
           <Text style={[styles.rangeText, preset === "custom" && styles.rangeTextActive]}>Custom</Text>
         </Pressable>
       </View>
+      {preset === "custom" ? (
+        <Pressable style={[styles.customRangeSummary, rangeBounds.error && styles.customRangeError]} onPress={() => setDatePickerOpen(true)}>
+          <Ionicons name="calendar-number-outline" color={rangeBounds.error ? colors.rose : colors.primary} size={16} />
+          <Text style={[styles.customRangeText, rangeBounds.error && styles.customRangeTextError]}>
+            {rangeBounds.error || getRangeLabel(rangeBounds)}
+          </Text>
+        </Pressable>
+      ) : null}
 
       <View style={styles.summaryGrid}>
         <SummaryCard title="Total Balance" value={formatVND(summary.balance)} note={`${currentTransactions.length} transactions in range`} icon="wallet-outline" color={colors.sky} positive={summary.balance >= 0} />
@@ -165,7 +192,7 @@ export default function DashboardScreen() {
             </View>
           );
         })}
-        {!goals.length && <Text style={styles.emptyInline}>No savings goals yet. Open Goals from More to create one.</Text>}
+        {!goals.length && <Text style={styles.emptyInline}>No savings goals yet. Open the Goals tab to create one.</Text>}
       </Card>
 
       <SectionTitle title="Budget Progress" />
@@ -196,6 +223,18 @@ export default function DashboardScreen() {
         <Text style={styles.scoreStatus}>{budgetHealth.status.toUpperCase()}</Text>
         <Text style={styles.scoreCopy}>{budgetHealth.explanation}</Text>
       </Card>
+
+      <DateRangePicker
+        open={datePickerOpen}
+        range={customRange}
+        title="Dashboard Date Range"
+        onApply={(nextRange) => {
+          setCustomRange(nextRange);
+          setPreset("custom");
+          setSelectedForecast(null);
+        }}
+        onClose={() => setDatePickerOpen(false)}
+      />
     </Screen>
   );
 }
@@ -384,52 +423,9 @@ function buildForecastPoints(transactions) {
   return points;
 }
 
-function getTransactionsForPreset(transactions, preset) {
-  const today = new Date();
-  const current = getDateRange(preset, today);
-  const previous = getPreviousRange(current);
-  const currentTransactions = transactions.filter((item) => isDateInRange(item.date, current));
-  const previousTransactions = transactions.filter((item) => isDateInRange(item.date, previous));
-  return { currentTransactions, previousTransactions };
-}
-
-function getDateRange(preset, today) {
-  const end = startOfDay(today);
-  const start = new Date(end);
-
-  if (preset === "week") {
-    const day = start.getDay() || 7;
-    start.setDate(start.getDate() - day + 1);
-  } else if (preset === "year") {
-    start.setMonth(0, 1);
-  } else {
-    start.setDate(1);
-  }
-
-  return { from: start, to: end };
-}
-
-function getPreviousRange(range) {
-  const days = Math.max(Math.round((range.to - range.from) / 86400000) + 1, 1);
-  const to = new Date(range.from);
-  to.setDate(to.getDate() - 1);
-  const from = new Date(to);
-  from.setDate(from.getDate() - days + 1);
-  return { from, to };
-}
-
-function startOfDay(date) {
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
-}
-
 function parseDate(value) {
   const [year, month, day] = String(value).split("-").map(Number);
   return new Date(year, month - 1, day);
-}
-
-function isDateInRange(value, range) {
-  const date = parseDate(value);
-  return date >= range.from && date <= range.to;
 }
 
 function getTransactionSummary(transactions, categories) {
@@ -612,6 +608,10 @@ const styles = StyleSheet.create({
   rangeActive: { backgroundColor: colors.primary, borderColor: colors.primary },
   rangeText: { color: colors.text, fontWeight: "900" },
   rangeTextActive: { color: colors.surface },
+  customRangeSummary: { minHeight: 42, marginHorizontal: 16, marginTop: 10, borderRadius: 10, borderWidth: 1, borderColor: "#99f6e4", backgroundColor: "#f0fdfa", paddingHorizontal: 12, flexDirection: "row", alignItems: "center", gap: 8 },
+  customRangeError: { borderColor: "#fecdd3", backgroundColor: "#fff1f2" },
+  customRangeText: { flex: 1, color: colors.primaryDark, fontWeight: "800" },
+  customRangeTextError: { color: colors.rose },
   summaryGrid: { marginHorizontal: 16, marginTop: 14, gap: 10 },
   summaryCard: { borderRadius: 18, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, padding: 16 },
   summaryTop: { flexDirection: "row", justifyContent: "space-between", gap: 10 },

@@ -1,9 +1,10 @@
-import React, { useState } from "react";
-import { Modal, Pressable, StyleSheet, Text, View } from "react-native";
+import React, { useCallback, useState } from "react";
+import { Image, Modal, Pressable, StyleSheet, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { useNavigation } from "@react-navigation/native";
+import { useFocusEffect, useNavigation } from "@react-navigation/native";
 import { colors } from "../theme";
 import { useAuth } from "../context/AuthContext";
+import { getCurrentUser, resolveMediaUrl } from "../api/client";
 
 function initialsFor(username) {
   return (username || "BM").slice(0, 2).toUpperCase();
@@ -13,7 +14,25 @@ export default function ProfileMenu() {
   const auth = useAuth();
   const navigation = useNavigation();
   const user = auth?.user;
+  const [currentUser, setCurrentUser] = useState(user || null);
   const [open, setOpen] = useState(false);
+  const avatarUri = resolveMediaUrl(currentUser?.avatar_url);
+
+  useFocusEffect(
+    useCallback(() => {
+      let active = true;
+      if (auth?.access_token) {
+        getCurrentUser(auth.access_token)
+          .then((data) => {
+            if (active) setCurrentUser(data);
+          })
+          .catch(() => {});
+      }
+      return () => {
+        active = false;
+      };
+    }, [auth?.access_token])
+  );
 
   function go(route) {
     setOpen(false);
@@ -22,17 +41,17 @@ export default function ProfileMenu() {
 
   return (
     <>
-      <Pressable style={styles.avatarButton} onPress={() => setOpen(true)}>
-        <Text style={styles.avatarText}>{initialsFor(user?.username)}</Text>
+      <Pressable accessibilityLabel="Open profile menu" style={styles.avatarButton} onPress={() => setOpen(true)}>
+        {avatarUri ? <Image source={{ uri: avatarUri }} style={styles.avatarImage} /> : <Text style={styles.avatarText}>{initialsFor(currentUser?.username || user?.username)}</Text>}
       </Pressable>
 
-      <Modal animationType="fade" transparent visible={open} onRequestClose={() => setOpen(false)}>
+      {open ? <Modal animationType="fade" transparent visible={open} onRequestClose={() => setOpen(false)}>
         <View style={styles.backdrop}>
           <View style={styles.panel}>
             <View style={styles.header}>
               <View>
                 <Text style={styles.heading}>Account</Text>
-                <Text style={styles.subheading}>{user?.username || "BudgetMate"}</Text>
+                <Text style={styles.subheading}>{currentUser?.username || user?.username || "BudgetMate"}</Text>
               </View>
               <Pressable style={styles.iconButton} onPress={() => setOpen(false)}>
                 <Ionicons name="close" color={colors.ink} size={21} />
@@ -44,9 +63,9 @@ export default function ProfileMenu() {
                 <Ionicons name="person-outline" color={colors.primary} size={20} />
                 <Text style={styles.menuText}>Profile Details</Text>
               </Pressable>
-              <Pressable style={styles.menuRow} onPress={() => go("Settings")}>
-                <Ionicons name="settings-outline" color={colors.primary} size={20} />
-                <Text style={styles.menuText}>Settings</Text>
+              <Pressable style={styles.menuRow} onPress={() => go("ChangeProfilePhoto")}>
+                <Ionicons name="camera-outline" color={colors.primary} size={20} />
+                <Text style={styles.menuText}>Profile Photo</Text>
               </Pressable>
               <Pressable style={styles.menuRow} onPress={() => go("Accounts")}>
                 <Ionicons name="business-outline" color={colors.primary} size={20} />
@@ -60,7 +79,7 @@ export default function ProfileMenu() {
             </Pressable>
           </View>
         </View>
-      </Modal>
+      </Modal> : null}
     </>
   );
 }
@@ -74,8 +93,10 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#99f6e4",
     alignItems: "center",
-    justifyContent: "center"
+    justifyContent: "center",
+    overflow: "hidden"
   },
+  avatarImage: { width: "100%", height: "100%" },
   avatarText: { color: colors.primary, fontWeight: "900" },
   backdrop: {
     flex: 1,
