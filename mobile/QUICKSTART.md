@@ -44,13 +44,18 @@ For local browser testing, `mobile/.env` should be:
 
 ```env
 EXPO_PUBLIC_API_URL=http://127.0.0.1:8000/api/v1
+EXPO_PUBLIC_PUSH_PROVIDER=future
 ```
 
 For local backend testing without Docker/PostgreSQL, `backend/.env` should have:
 
 ```env
+DATABASE_URL=
+MONGODB_URI=
 DATABASE_FALLBACK_TO_SQLITE=true
 SQLITE_DATABASE_PATH=budgetmate.db
+JWT_SECRET_KEY=local_dev_secret_change_later
+CORS_ORIGIN=http://127.0.0.1:8081,http://localhost:8081
 ```
 
 Local data is saved in:
@@ -78,8 +83,9 @@ New accounts can register and login, but they start with no transactions or fina
 - Accounts overview from transaction data
 - Savings goals, separate goal creation, and transaction-linked goal progress
 - BudgetMate AI chat
-- Profile, settings, change password, and profile photo upload
+- Profile details, change password, and profile photo upload
 - Calendar date range picker on dashboard and reports
+- Future-ready push token registration API and mobile service placeholder
 
 ## Tests
 
@@ -94,7 +100,7 @@ uv run python -m unittest discover -s tests
 Signup rules:
 
 - username must be at least 3 characters
-- password must be at least 6 characters
+- password must be at least 8 characters and include a letter, number, and special character
 - confirm password must match password
 - username must not already exist
 
@@ -116,7 +122,7 @@ DATABASE_URL=your_hosted_postgres_connection_string
 MONGODB_URI=your_mongodb_connection_string
 REDIS_URL=your_redis_connection_string
 JWT_SECRET_KEY=your_real_secret_key
-CORS_ORIGIN=*
+CORS_ORIGIN=https://your-mobile-web-domain.com
 ```
 
 Mobile production environment:
@@ -126,6 +132,8 @@ EXPO_PUBLIC_API_URL=https://your-backend-domain.com/api/v1
 ```
 
 The app can use the same backend code and database tables in production, but it will not automatically copy local data from `backend/budgetmate.db`. If you want the local data in production, migrate it from SQLite to PostgreSQL.
+
+PostgreSQL and MongoDB are optional for local development. With the local `.env` above, the backend uses SQLite directly and logs `Using SQLite for local development.` Push notification storage is prepared, but a real Expo Notifications, FCM, or APNs provider still needs to be connected for production push delivery.
 
 ## Expo Go On A Real Phone
 

@@ -118,6 +118,24 @@ export async function uploadProfilePhoto(token, payload) {
   return response.data;
 }
 
+export async function registerPushToken(token, payload) {
+  const response = await api.post("/users/push-tokens", payload, { headers: authHeaders(token) });
+  return response.data;
+}
+
+export async function updatePushToken(token, payload) {
+  const response = await api.put("/users/push-tokens", payload, { headers: authHeaders(token) });
+  return response.data;
+}
+
+export async function unregisterPushToken(token, deviceToken) {
+  const response = await api.delete("/users/push-tokens", {
+    headers: authHeaders(token),
+    data: { device_token: deviceToken }
+  });
+  return response.data;
+}
+
 export function resolveMediaUrl(uri) {
   if (!uri) return "";
   if (/^https?:\/\//i.test(uri) || uri.startsWith("data:")) return uri;

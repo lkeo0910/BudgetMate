@@ -41,7 +41,8 @@ export default function ChangePasswordScreen() {
     try {
       await changePassword(auth.access_token, {
         current_password: form.currentPassword,
-        new_password: form.newPassword
+        new_password: form.newPassword,
+        confirm_new_password: form.confirmPassword
       });
       setForm(emptyForm);
       setSuccess("Password updated successfully.");

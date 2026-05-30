@@ -19,7 +19,9 @@ import AssistantScreen from "./src/screens/AssistantScreen";
 import ProfileScreen from "./src/screens/ProfileScreen";
 import ChangePasswordScreen from "./src/screens/ChangePasswordScreen";
 import ChangeProfilePhotoScreen from "./src/screens/ChangeProfilePhotoScreen";
+import { api } from "./src/api/client";
 import { AuthProvider } from "./src/context/AuthContext";
+import { unregisterStoredDeviceToken } from "./src/services/pushNotifications";
 import { colors } from "./src/theme";
 
 const Tab = createBottomTabNavigator();
@@ -128,6 +130,32 @@ export default function App() {
     };
   }, []);
 
+  useEffect(() => {
+    const interceptor = api.interceptors.response.use(
+      (response) => response,
+      async (error) => {
+        const path = error.config?.url || "";
+        if (error.response?.status === 401 && !path.includes("/auth/login")) {
+          await clearLocalSession();
+        }
+        return Promise.reject(error);
+      }
+    );
+
+    return () => {
+      api.interceptors.response.eject(interceptor);
+    };
+  }, []);
+
+  async function clearLocalSession() {
+    setUser(null);
+    try {
+      await AsyncStorage.removeItem(AUTH_STORAGE_KEY);
+    } catch {
+      // Clearing local React state is enough to return to the login screen.
+    }
+  }
+
   async function handleAuthenticated(result) {
     setUser(result);
     try {
@@ -138,12 +166,14 @@ export default function App() {
   }
 
   async function logout() {
-    setUser(null);
-    try {
-      await AsyncStorage.removeItem(AUTH_STORAGE_KEY);
-    } catch {
-      // Clearing local React state is enough to return to the login screen.
+    if (user?.access_token) {
+      try {
+        await unregisterStoredDeviceToken(user.access_token);
+      } catch {
+        // Push token cleanup is best-effort and should not block logout.
+      }
     }
+    await clearLocalSession();
   }
 
   if (restoringSession) {

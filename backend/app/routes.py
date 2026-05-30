@@ -6,6 +6,7 @@ from pathlib import Path
 import re
 
 from fastapi import APIRouter, HTTPException, Header, Query, status
+from app.core.config import get_settings
 from app.models import (
     CategoryCreate,
     CategoryUpdate,
@@ -15,6 +16,8 @@ from app.models import (
     ChatSectionUpdate,
     GoalContributionCreate,
     ProfilePhotoUpload,
+    PushTokenDeleteRequest,
+    PushTokenRequest,
     SavingsGoalCreate,
     TransactionCreate,
     TransactionUpdate,
@@ -24,20 +27,25 @@ from app.models import (
     UserResponse,
     UserSettingsUpdate,
 )
-from app.auth import hash_password, verify_password, create_access_token, decode_token
+from app.auth import hash_password, verify_password, password_needs_rehash, create_access_token, decode_token
 from app.database import get_db
 from app.seed_data import ensure_default_categories
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 finance_router = APIRouter(tags=["finance"])
+settings = get_settings()
 
 
-TRANSACTION_COLUMNS = "id, user_id, vendor, category_id, amount, date, type, notes, created_at, updated_at"
+TRANSACTION_COLUMNS = "id, user_id, vendor, category_id, goal_id, amount, date, type, notes, created_at, updated_at"
 CATEGORY_COLUMNS = "id, user_id, category_name, monthly_limit, category_type, category_icon, created_at, updated_at"
 GOAL_COLUMNS = "id, user_id, category_id, title, target_amount, initial_amount, target_date, created_at, updated_at"
 CONTRIBUTION_COLUMNS = "id, goal_id, user_id, transaction_id, amount, date, note, created_at"
 CHAT_SECTION_COLUMNS = "id, user_id, name, created_at, updated_at"
-PROFILE_PHOTO_ROOT = Path(__file__).resolve().parents[1] / "uploads" / "profile_photos"
+PUSH_TOKEN_COLUMNS = "id, user_id, device_token, platform, created_at, updated_at, last_used_at"
+UPLOAD_ROOT = Path(settings.upload_dir)
+if not UPLOAD_ROOT.is_absolute():
+    UPLOAD_ROOT = Path(__file__).resolve().parents[1] / UPLOAD_ROOT
+PROFILE_PHOTO_ROOT = UPLOAD_ROOT / "profile_photos"
 STRONG_PASSWORD_PATTERN = re.compile(r"^(?=.*[A-Za-z])(?=.*\d)(?=.*[^A-Za-z\d]).{8,72}$")
 
 
@@ -65,7 +73,18 @@ async def require_current_user_id(authorization: str | None) -> int:
             detail="Invalid token"
         )
 
-    return int(payload.get("sub"))
+    try:
+        user_id = int(payload.get("sub"))
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=401, detail="Invalid token")
+
+    db = get_db()
+    if db:
+        user = await db.fetchrow("SELECT id FROM users WHERE id = $1", user_id)
+        if not user:
+            raise HTTPException(status_code=401, detail="Invalid token")
+
+    return user_id
 
 
 async def ensure_user_category(db, user_id: int, category_id: int):
@@ -113,6 +132,25 @@ def api_error_message(exc: Exception, fallback: str) -> str:
     return text if text else fallback
 
 
+def detect_image_mime(content: bytes) -> str | None:
+    if content.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    if content.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png"
+    if len(content) >= 12 and content[:4] == b"RIFF" and content[8:12] == b"WEBP":
+        return "image/webp"
+    return None
+
+
+def extension_for_mime(mime_type: str) -> str:
+    return {
+        "image/jpeg": "jpg",
+        "image/jpg": "jpg",
+        "image/png": "png",
+        "image/webp": "webp",
+    }[mime_type]
+
+
 def row_to_goal(row) -> dict:
     goal = dict(row)
     goal["id"] = str(goal["id"])
@@ -139,6 +177,13 @@ def row_to_section_summary(row) -> dict:
         "name": section.get("name"),
         "date": section.get("updated_at") or section.get("created_at"),
     }
+
+
+def row_to_push_token(row) -> dict:
+    token = dict(row)
+    token["id"] = str(token["id"])
+    token["user_id"] = str(token["user_id"])
+    return token
 
 
 async def get_user_goal(db, user_id: int, goal_id: int):
@@ -201,12 +246,13 @@ async def sync_goal_contribution_for_transaction(db, user_id: int, transaction: 
         user_id,
         transaction["id"],
     )
+    effective_goal_id = requested_goal_id if requested_goal_id is not None else transaction.get("goal_id")
     goal = await resolve_transaction_goal(
         db,
         user_id,
         transaction.get("category_id"),
         transaction.get("type"),
-        requested_goal_id,
+        effective_goal_id,
     )
 
     if not goal:
@@ -347,6 +393,12 @@ async def register(user_data: UserCreate):
         )
     
     try:
+        if not STRONG_PASSWORD_PATTERN.match(user_data.password):
+            raise HTTPException(
+                status_code=400,
+                detail="Password must be 8+ characters and include a letter, number, and special character",
+            )
+
         existing_user = await db.fetchrow(
             "SELECT id FROM users WHERE username = $1",
             user_data.username,
@@ -354,7 +406,7 @@ async def register(user_data: UserCreate):
         if existing_user:
             raise HTTPException(
                 status_code=400,
-                detail="Username already exists"
+                detail="Account could not be created with those details"
             )
         
         hashed_password = hash_password(user_data.password)
@@ -388,8 +440,8 @@ async def register(user_data: UserCreate):
         )
     except HTTPException:
         raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception:
+        raise HTTPException(status_code=500, detail="Could not create account")
 
 
 @router.post("/login", response_model=TokenResponse)
@@ -427,6 +479,17 @@ async def login(credentials: UserLogin):
                 detail="Invalid username or password"
             )
 
+        if password_needs_rehash(password_hash):
+            await db.execute(
+                """
+                UPDATE users
+                SET password_hash = $1, updated_at = CURRENT_TIMESTAMP
+                WHERE id = $2
+                """,
+                hash_password(credentials.password),
+                user_id,
+            )
+
         await ensure_default_categories(db, user_id)
         
         access_token = create_access_token(user_id, username)
@@ -444,8 +507,8 @@ async def login(credentials: UserLogin):
         )
     except HTTPException:
         raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception:
+        raise HTTPException(status_code=500, detail="Could not sign in")
 
 
 @router.get("/me", response_model=UserResponse)
@@ -482,8 +545,8 @@ async def get_current_user(authorization: str = Header(None)):
         )
     except HTTPException:
         raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception:
+        raise HTTPException(status_code=500, detail="Could not load current user")
 
 
 @finance_router.get("/users/me", response_model=UserResponse)
@@ -574,6 +637,8 @@ async def change_password(payload: ChangePasswordRequest, authorization: str = H
             status_code=400,
             detail="New password must be 8+ characters and include a letter, number, and special character",
         )
+    if payload.confirm_new_password is not None and payload.new_password != payload.confirm_new_password:
+        raise HTTPException(status_code=400, detail="New password and confirmation must match")
     if payload.current_password == payload.new_password:
         raise HTTPException(status_code=400, detail="New password must be different from the current password")
 
@@ -616,15 +681,17 @@ async def upload_profile_photo(payload: ProfilePhotoUpload, authorization: str =
 
     if not content:
         raise HTTPException(status_code=400, detail="Profile photo is empty")
-    if len(content) > 5 * 1024 * 1024:
+    if len(content) > settings.max_profile_photo_bytes:
         raise HTTPException(status_code=400, detail="Profile photo must be 5MB or smaller")
 
-    extension = {
-        "image/jpeg": "jpg",
-        "image/jpg": "jpg",
-        "image/png": "png",
-        "image/webp": "webp",
-    }.get(payload.mime_type, "jpg")
+    declared_mime = "image/jpeg" if payload.mime_type == "image/jpg" else payload.mime_type
+    detected_mime = detect_image_mime(content)
+    if not detected_mime:
+        raise HTTPException(status_code=400, detail="Profile photo must be a JPG, PNG, or WEBP image")
+    if detected_mime != declared_mime:
+        raise HTTPException(status_code=400, detail="Profile photo type does not match the uploaded image")
+
+    extension = extension_for_mime(detected_mime)
     PROFILE_PHOTO_ROOT.mkdir(parents=True, exist_ok=True)
     photo_path = PROFILE_PHOTO_ROOT / f"user_{user_id}.{extension}"
     photo_path.write_bytes(content)
@@ -640,6 +707,92 @@ async def upload_profile_photo(payload: ProfilePhotoUpload, authorization: str =
         user_id,
     )
     return await get_current_user(authorization)
+
+
+@finance_router.get("/users/push-tokens")
+async def get_push_tokens(authorization: str = Header(None)):
+    user_id = await require_current_user_id(authorization)
+    db = get_db()
+    if not db:
+        raise HTTPException(status_code=503, detail="Database service unavailable")
+
+    rows = await db.fetch(
+        f"""
+        SELECT {PUSH_TOKEN_COLUMNS}
+        FROM push_tokens
+        WHERE user_id = $1
+        ORDER BY last_used_at DESC, updated_at DESC
+        """,
+        user_id,
+    )
+    return [row_to_push_token(row) for row in rows]
+
+
+@finance_router.post("/users/push-tokens", status_code=status.HTTP_201_CREATED)
+async def register_push_token(payload: PushTokenRequest, authorization: str = Header(None)):
+    user_id = await require_current_user_id(authorization)
+    db = get_db()
+    if not db:
+        raise HTTPException(status_code=503, detail="Database service unavailable")
+
+    row = await db.fetchrow(
+        f"""
+        INSERT INTO push_tokens (user_id, device_token, platform, last_used_at)
+        VALUES ($1, $2, $3, CURRENT_TIMESTAMP)
+        ON CONFLICT(user_id, device_token)
+        DO UPDATE SET platform = excluded.platform, updated_at = CURRENT_TIMESTAMP, last_used_at = CURRENT_TIMESTAMP
+        RETURNING {PUSH_TOKEN_COLUMNS}
+        """,
+        user_id,
+        payload.device_token,
+        payload.platform,
+    )
+    return row_to_push_token(row)
+
+
+@finance_router.put("/users/push-tokens", status_code=status.HTTP_200_OK)
+async def update_push_token(payload: PushTokenRequest, authorization: str = Header(None)):
+    return await register_push_token(payload, authorization)
+
+
+@finance_router.delete("/users/push-tokens")
+async def delete_push_token(payload: PushTokenDeleteRequest, authorization: str = Header(None)):
+    user_id = await require_current_user_id(authorization)
+    db = get_db()
+    if not db:
+        raise HTTPException(status_code=503, detail="Database service unavailable")
+
+    row = await db.fetchrow(
+        """
+        DELETE FROM push_tokens
+        WHERE user_id = $1 AND device_token = $2
+        RETURNING id
+        """,
+        user_id,
+        payload.device_token,
+    )
+    return {"deleted": bool(row)}
+
+
+@finance_router.delete("/users/push-tokens/{token_id}")
+async def delete_push_token_by_id(token_id: int, authorization: str = Header(None)):
+    user_id = await require_current_user_id(authorization)
+    db = get_db()
+    if not db:
+        raise HTTPException(status_code=503, detail="Database service unavailable")
+
+    row = await db.fetchrow(
+        """
+        DELETE FROM push_tokens
+        WHERE id = $1 AND user_id = $2
+        RETURNING id
+        """,
+        token_id,
+        user_id,
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Push token not found")
+    return {"deleted": True, "id": str(row["id"])}
 
 
 @finance_router.get("/users/categories")
@@ -851,18 +1004,21 @@ async def create_transaction(transaction: TransactionCreate, authorization: str 
 
     category_id = transaction.category_id
     if transaction.goal_id:
+        if transaction.type != "EXPENSE":
+            raise HTTPException(status_code=400, detail="Only expense transactions can be linked to a savings goal")
         goal = await get_user_goal(db, user_id, transaction.goal_id)
         category_id = goal.get("category_id") or await get_or_create_goal_category(db, user_id, goal["title"])
     await ensure_user_category(db, user_id, category_id)
     row = await db.fetchrow(
         f"""
-        INSERT INTO transactions (user_id, vendor, category_id, amount, date, type, notes)
-        VALUES ($1, $2, $3, $4, $5, $6, $7)
+        INSERT INTO transactions (user_id, vendor, category_id, goal_id, amount, date, type, notes)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
         RETURNING {TRANSACTION_COLUMNS}
         """,
         user_id,
         transaction.vendor,
         category_id,
+        transaction.goal_id,
         transaction.amount,
         transaction.date.isoformat(),
         transaction.type,
@@ -899,6 +1055,13 @@ async def update_transaction(transaction_id: int, transaction: TransactionUpdate
     if requested_goal_id:
         goal = await get_user_goal(db, user_id, requested_goal_id)
         updates["category_id"] = goal.get("category_id") or await get_or_create_goal_category(db, user_id, goal["title"])
+        updates["goal_id"] = requested_goal_id
+    elif goal_was_provided:
+        updates["goal_id"] = None
+    effective_type = updates.get("type") or existing_transaction.get("type")
+    effective_goal_id = requested_goal_id if requested_goal_id else (None if goal_was_provided else existing_transaction.get("goal_id"))
+    if effective_goal_id and effective_type != "EXPENSE":
+        raise HTTPException(status_code=400, detail="Only expense transactions can be linked to a savings goal")
     if "category_id" in updates:
         await ensure_user_category(db, user_id, updates["category_id"])
     if "date" in updates and updates["date"] is not None:
@@ -1126,13 +1289,14 @@ async def create_goal_contribution(goal_id: int, contribution: GoalContributionC
 
     transaction_row = await db.fetchrow(
         """
-        INSERT INTO transactions (user_id, vendor, category_id, amount, date, type, notes)
-        VALUES ($1, $2, $3, $4, $5, $6, $7)
+        INSERT INTO transactions (user_id, vendor, category_id, goal_id, amount, date, type, notes)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
         RETURNING id
         """,
         user_id,
         goal["title"],
         category_id,
+        goal_id,
         contribution.amount,
         contribution_date.isoformat(),
         "EXPENSE",

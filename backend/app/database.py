@@ -103,45 +103,57 @@ async def init_databases():
     """Initialize PostgreSQL and MongoDB connections"""
     global pg_pool, db_connection, mongo_client, mongo_db
 
-    try:
-        pg_pool = await asyncpg.create_pool(
-            settings.database_url,
-            min_size=1,
-            max_size=10,
-            timeout=settings.postgres_connect_timeout,
-        )
-
-        async with pg_pool.acquire() as conn:
-            await conn.execute("""
-                CREATE TABLE IF NOT EXISTS users (
-                    id SERIAL PRIMARY KEY,
-                    username VARCHAR(50) UNIQUE NOT NULL,
-                    email VARCHAR(120),
-                    phone_number VARCHAR(50),
-                    avatar_url TEXT,
-                    password_hash VARCHAR(255) NOT NULL,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            """)
-            await conn.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS phone_number VARCHAR(50)")
-            await conn.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_url TEXT")
-
-        db_connection = pg_pool
-        print("PostgreSQL initialized")
-    except Exception as exc:
-        if not settings.database_fallback_to_sqlite:
-            raise
-
-        print(f"PostgreSQL unavailable; using local SQLite fallback: {exc}")
+    async def use_sqlite():
         sqlite_path = Path(settings.sqlite_database_path)
         if not sqlite_path.is_absolute():
             sqlite_path = Path(__file__).resolve().parents[1] / sqlite_path
+        sqlite_path.parent.mkdir(parents=True, exist_ok=True)
         db_connection = await SQLiteDatabase(str(sqlite_path)).connect()
-        print(f"SQLite initialized at {sqlite_path}")
+        print(f"Using SQLite for local development: {sqlite_path}")
+        return db_connection
+
+    should_try_postgres = bool(settings.database_url) and not settings.database_fallback_to_sqlite
+    if should_try_postgres:
+        try:
+            pg_pool = await asyncpg.create_pool(
+                settings.database_url,
+                min_size=1,
+                max_size=10,
+                timeout=settings.postgres_connect_timeout,
+            )
+
+            async with pg_pool.acquire() as conn:
+                await conn.execute("""
+                    CREATE TABLE IF NOT EXISTS users (
+                        id SERIAL PRIMARY KEY,
+                        username VARCHAR(50) UNIQUE NOT NULL,
+                        email VARCHAR(120),
+                        phone_number VARCHAR(50),
+                        avatar_url TEXT,
+                        password_hash VARCHAR(255) NOT NULL,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+                await conn.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS phone_number VARCHAR(50)")
+                await conn.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_url TEXT")
+
+            db_connection = pg_pool
+            print("Using PostgreSQL database.")
+        except Exception:
+            if not settings.database_fallback_to_sqlite:
+                raise
+            db_connection = await use_sqlite()
+    else:
+        db_connection = await use_sqlite()
 
     await init_finance_schema(db_connection)
     await seed_initial_data(db_connection)
+
+    if not settings.mongodb_uri:
+        mongo_db = None
+        print("MongoDB not configured; chat storage uses SQLite.")
+        return
 
     try:
         mongo_client = AsyncIOMotorClient(
@@ -161,7 +173,7 @@ async def init_databases():
         mongo_db = None
         if settings.mongodb_required:
             raise
-        print(f"MongoDB unavailable; continuing without MongoDB: {exc}")
+        print("MongoDB unavailable; continuing with SQLite-backed local features.")
 
 
 async def close_databases():

@@ -35,6 +35,16 @@ class BudgetMateApiSmokeTest(unittest.TestCase):
             token = login.json()["access_token"]
             headers = {"Authorization": f"Bearer {token}"}
 
+            wrong_password = client.post(
+                "/api/v1/auth/login",
+                json={"username": "demo_user", "password": "wrong-password"},
+            )
+            self.assertEqual(wrong_password.status_code, 401)
+            self.assertEqual(wrong_password.json()["detail"], "Invalid username or password")
+
+            unauthenticated = client.get("/api/v1/transactions")
+            self.assertEqual(unauthenticated.status_code, 401)
+
             categories = client.get("/api/v1/users/categories", headers=headers)
             self.assertEqual(categories.status_code, 200)
             self.assertGreaterEqual(len(categories.json()), 10)
@@ -58,6 +68,7 @@ class BudgetMateApiSmokeTest(unittest.TestCase):
             transactions = client.get("/api/v1/transactions/?page=1&size=5", headers=headers)
             self.assertEqual(transactions.status_code, 200)
             self.assertEqual(len(transactions.json()["items"]), 5)
+            seeded_transaction_id = transactions.json()["items"][0]["id"]
 
             transaction = client.post(
                 "/api/v1/transactions",
@@ -81,6 +92,20 @@ class BudgetMateApiSmokeTest(unittest.TestCase):
             )
             self.assertEqual(updated_transaction.status_code, 200)
             self.assertEqual(updated_transaction.json()["amount"], 124000)
+
+            invalid_goal_link = client.post(
+                "/api/v1/transactions",
+                headers=headers,
+                json={
+                    "vendor": "Invalid goal",
+                    "category_id": category_id,
+                    "goal_id": 999999,
+                    "amount": 1000,
+                    "date": "2026-05-29",
+                    "type": "EXPENSE",
+                },
+            )
+            self.assertEqual(invalid_goal_link.status_code, 404)
 
             deleted_transaction = client.delete(f"/api/v1/transactions/{transaction_id}", headers=headers)
             self.assertEqual(deleted_transaction.status_code, 200)
@@ -147,12 +172,30 @@ class BudgetMateApiSmokeTest(unittest.TestCase):
             ]
             self.assertEqual(deleted_rows, [])
 
+            other_login = client.post(
+                "/api/v1/auth/login",
+                json={"username": "test_user", "password": "password123"},
+            )
+            self.assertEqual(other_login.status_code, 200)
+            other_headers = {"Authorization": f"Bearer {other_login.json()['access_token']}"}
+            private_transaction = client.get(f"/api/v1/transactions/{seeded_transaction_id}", headers=other_headers)
+            self.assertEqual(private_transaction.status_code, 404)
+
             password = client.put(
                 "/api/v1/users/password",
                 headers=headers,
-                json={"current_password": "password123", "new_password": "Password123!"},
+                json={
+                    "current_password": "password123",
+                    "new_password": "Password123!",
+                    "confirm_new_password": "Password123!",
+                },
             )
             self.assertEqual(password.status_code, 200)
+            old_password = client.post(
+                "/api/v1/auth/login",
+                json={"username": "demo_user", "password": "password123"},
+            )
+            self.assertEqual(old_password.status_code, 401)
             relogin = client.post(
                 "/api/v1/auth/login",
                 json={"username": "demo_user", "password": "Password123!"},
@@ -170,6 +213,33 @@ class BudgetMateApiSmokeTest(unittest.TestCase):
             )
             self.assertEqual(photo.status_code, 200)
             self.assertIn("/uploads/profile_photos/user_", photo.json()["avatar_url"])
+
+            invalid_photo = client.post(
+                "/api/v1/users/profile-photo",
+                headers=headers,
+                json={
+                    "image_base64": "bm90LWFuLWltYWdl",
+                    "mime_type": "image/png",
+                    "filename": "../bad.png",
+                },
+            )
+            self.assertEqual(invalid_photo.status_code, 400)
+
+            push_token = client.post(
+                "/api/v1/users/push-tokens",
+                headers=headers,
+                json={"device_token": "ExponentPushToken[smoke-test-token]", "platform": "web"},
+            )
+            self.assertEqual(push_token.status_code, 201)
+            push_token_id = push_token.json()["id"]
+            push_tokens = client.get("/api/v1/users/push-tokens", headers=headers)
+            self.assertEqual(push_tokens.status_code, 200)
+            self.assertEqual(len(push_tokens.json()), 1)
+            delete_push_token = client.delete(
+                f"/api/v1/users/push-tokens/{push_token_id}",
+                headers=headers,
+            )
+            self.assertEqual(delete_push_token.status_code, 200)
 
             section = client.post("/api/v1/chatbot/sections", headers=headers, json={})
             self.assertEqual(section.status_code, 201)

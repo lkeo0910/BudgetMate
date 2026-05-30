@@ -141,25 +141,7 @@ export default function DashboardScreen() {
         {!recent.length && <Text style={styles.emptyInline}>No recent transactions in this time range.</Text>}
       </Card>
 
-      <Card>
-        <Text style={styles.cardTitle}>Spending by Category</Text>
-        {spendingRows.length ? (
-          <View style={styles.donutWrap}>
-            <PieApproximation rows={spendingRows} total={dashboardSummary.expenses} />
-            <View style={styles.legend}>
-              {spendingRows.map((item) => (
-                <View key={item.id} style={styles.legendRow}>
-                  <View style={[styles.legendDot, { backgroundColor: item.color }]} />
-                  <Text style={styles.legendName}>{item.name}</Text>
-                  <Text style={styles.legendValue}>{formatVND(item.activity)}</Text>
-                </View>
-              ))}
-            </View>
-          </View>
-        ) : (
-          <Text style={styles.emptyInline}>No spending data in this time range.</Text>
-        )}
-      </Card>
+      <SpendingByCategoryCard rows={spendingRows} total={dashboardSummary.expenses} viewportWidth={width} />
 
       <Card>
         <View style={styles.cardTitleRow}>
@@ -256,31 +238,80 @@ function SummaryCard({ title, value, note, icon, color, positive = false }) {
   );
 }
 
-function PieApproximation({ rows, total }) {
+function SpendingByCategoryCard({ rows, total, viewportWidth }) {
+  const isWide = viewportWidth >= 680;
   const safeTotal = Math.max(total, 1);
-  const slices = rows.slice(0, 5);
 
   return (
-    <View style={styles.pieWrap}>
-      {slices.map((item, index) => {
-        const percent = Math.max((item.activity / safeTotal) * 100, 4);
-        return (
-          <View
-            key={item.id}
-            style={[
-              styles.pieSlice,
-              {
-                backgroundColor: item.color,
-                width: `${Math.min(percent + 24, 72)}%`,
-                height: `${Math.min(percent + 24, 72)}%`,
-                transform: [{ rotate: `${index * 38}deg` }]
-              }
-            ]}
-          />
-        );
-      })}
-      <View style={styles.pieHole}>
-        <Text style={styles.donutValue}>{formatVND(total)}</Text>
+    <Card>
+      <View style={styles.spendingCardHeader}>
+        <Text style={styles.cardTitle}>Spending by Category</Text>
+        {!!rows.length && <Text style={styles.spendingCount}>{rows.length} shown</Text>}
+      </View>
+      {rows.length ? (
+        <View style={[styles.spendingContent, isWide && styles.spendingContentWide]}>
+          <DonutChart rows={rows} total={total} />
+          <View style={styles.spendingList}>
+            {rows.map((item) => {
+              const percent = safeTotal ? Math.round((item.activity / safeTotal) * 100) : 0;
+              return (
+                <View key={item.id} style={styles.spendingRow}>
+                  <View style={[styles.legendDot, { backgroundColor: item.color }]} />
+                  <View style={styles.spendingNameBlock}>
+                    <Text numberOfLines={1} style={styles.legendName}>{item.name}</Text>
+                    <Text style={styles.spendingPercent}>{percent}%</Text>
+                  </View>
+                  <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.78} style={styles.legendValue}>{formatVND(item.activity)}</Text>
+                </View>
+              );
+            })}
+          </View>
+        </View>
+      ) : (
+        <Text style={styles.emptyInline}>No spending data in this time range.</Text>
+      )}
+    </Card>
+  );
+}
+
+function DonutChart({ rows, total }) {
+  const size = 184;
+  const center = size / 2;
+  const strokeWidth = 18;
+  const radius = (size - strokeWidth) / 2;
+  const circumference = 2 * Math.PI * radius;
+  const safeTotal = Math.max(total, 1);
+  let offset = 0;
+
+  return (
+    <View style={styles.donutChart}>
+      <Svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+        <Circle cx={center} cy={center} r={radius} stroke="#e2e8f0" strokeWidth={strokeWidth} fill="none" />
+        {rows.map((item) => {
+          const length = Math.max((item.activity / safeTotal) * circumference, rows.length === 1 ? circumference : 4);
+          const dashOffset = -offset;
+          offset += length;
+          return (
+            <Circle
+              key={item.id}
+              cx={center}
+              cy={center}
+              r={radius}
+              stroke={item.color}
+              strokeWidth={strokeWidth}
+              fill="none"
+              strokeLinecap="round"
+              strokeDasharray={`${length} ${Math.max(circumference - length, 0)}`}
+              strokeDashoffset={dashOffset}
+              rotation="-90"
+              originX={center}
+              originY={center}
+            />
+          );
+        })}
+      </Svg>
+      <View style={styles.donutCenter}>
+        <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7} style={styles.donutValue}>{formatVND(total)}</Text>
         <Text style={styles.donutLabel}>spent</Text>
       </View>
     </View>
@@ -642,17 +673,21 @@ const styles = StyleSheet.create({
   recentVendor: { color: colors.ink, fontWeight: "900" },
   recentMeta: { color: colors.muted, fontSize: 12, fontWeight: "700", marginTop: 3 },
   recentAmount: { maxWidth: 112, textAlign: "right", fontWeight: "900", fontSize: 12 },
-  donutWrap: { marginTop: 18, alignItems: "center", gap: 18 },
-  pieWrap: { width: 178, height: 178, borderRadius: 89, backgroundColor: "#f1f5f9", alignItems: "center", justifyContent: "center", overflow: "hidden" },
-  pieSlice: { position: "absolute", borderRadius: 999 },
-  pieHole: { width: 104, height: 104, borderRadius: 52, backgroundColor: colors.surface, alignItems: "center", justifyContent: "center", paddingHorizontal: 8 },
-  donutValue: { color: colors.ink, fontWeight: "900", fontSize: 15, textAlign: "center" },
+  spendingCardHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 },
+  spendingCount: { color: colors.muted, fontSize: 12, fontWeight: "900" },
+  spendingContent: { marginTop: 14, alignItems: "center", gap: 14 },
+  spendingContentWide: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 18 },
+  donutChart: { width: 184, height: 184, alignItems: "center", justifyContent: "center" },
+  donutCenter: { position: "absolute", width: 118, height: 118, borderRadius: 59, backgroundColor: colors.surface, alignItems: "center", justifyContent: "center", paddingHorizontal: 8 },
+  donutValue: { width: "100%", color: colors.ink, fontWeight: "900", fontSize: 16, textAlign: "center" },
   donutLabel: { color: colors.muted, fontWeight: "800", fontSize: 11, marginTop: 3 },
-  legend: { width: "100%", gap: 10 },
-  legendRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  spendingList: { width: "100%", gap: 8, alignSelf: "stretch", flex: 1 },
+  spendingRow: { minHeight: 48, borderRadius: 12, borderWidth: 1, borderColor: "#eef2f7", backgroundColor: "#fbfdff", paddingHorizontal: 12, flexDirection: "row", alignItems: "center", gap: 10 },
   legendDot: { width: 10, height: 10, borderRadius: 5 },
-  legendName: { flex: 1, color: colors.text, fontWeight: "800" },
-  legendValue: { color: colors.ink, fontWeight: "900", fontSize: 12 },
+  spendingNameBlock: { flex: 1, minWidth: 0 },
+  legendName: { color: colors.text, fontWeight: "900" },
+  spendingPercent: { color: colors.muted, fontSize: 11, fontWeight: "800", marginTop: 2 },
+  legendValue: { maxWidth: 128, color: colors.ink, fontWeight: "900", fontSize: 13, textAlign: "right" },
   insightRow: { flexDirection: "row", alignItems: "flex-start", gap: 10, marginTop: 16 },
   insightText: { flex: 1, color: colors.text, lineHeight: 21, fontWeight: "700" },
   goalBox: { marginTop: 14, borderRadius: 16, borderWidth: 1, borderColor: "#f1f5f9", padding: 14 },

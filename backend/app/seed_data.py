@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 
-from app.auth import hash_password
+from app.auth import hash_password, password_needs_rehash
 
 
 DEFAULT_CATEGORIES = [
@@ -72,6 +72,18 @@ async def init_finance_schema(db):
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
+    try:
+        await db.execute("""
+            ALTER TABLE transactions
+            ADD COLUMN IF NOT EXISTS goal_id INTEGER REFERENCES savings_goals(id) ON DELETE SET NULL
+        """)
+    except Exception:
+        if hasattr(db, "add_column_if_missing"):
+            await db.add_column_if_missing(
+                "transactions",
+                "goal_id",
+                "INTEGER REFERENCES savings_goals(id) ON DELETE SET NULL",
+            )
     await db.execute("""
         CREATE TABLE IF NOT EXISTS savings_goal_contributions (
             id SERIAL PRIMARY KEY,
@@ -123,11 +135,44 @@ async def init_finance_schema(db):
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
+    await db.execute("""
+        CREATE TABLE IF NOT EXISTS push_tokens (
+            id SERIAL PRIMARY KEY,
+            user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            device_token TEXT NOT NULL,
+            platform VARCHAR(20) NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            last_used_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(user_id, device_token)
+        )
+    """)
+    for statement in [
+        "CREATE INDEX IF NOT EXISTS idx_categories_user_id ON categories(user_id)",
+        "CREATE INDEX IF NOT EXISTS idx_transactions_user_id ON transactions(user_id)",
+        "CREATE INDEX IF NOT EXISTS idx_transactions_date ON transactions(date)",
+        "CREATE INDEX IF NOT EXISTS idx_transactions_category_id ON transactions(category_id)",
+        "CREATE INDEX IF NOT EXISTS idx_transactions_goal_id ON transactions(goal_id)",
+        "CREATE INDEX IF NOT EXISTS idx_savings_goals_user_id ON savings_goals(user_id)",
+        "CREATE INDEX IF NOT EXISTS idx_savings_goal_contributions_goal_id ON savings_goal_contributions(goal_id)",
+        "CREATE INDEX IF NOT EXISTS idx_push_tokens_user_id ON push_tokens(user_id)",
+    ]:
+        await db.execute(statement)
 
 
 async def ensure_seed_user(db, username="test_user", password="password123"):
-    existing = await db.fetchrow("SELECT id FROM users WHERE username = $1", username)
+    existing = await db.fetchrow("SELECT id, password_hash FROM users WHERE username = $1", username)
     if existing:
+        if password_needs_rehash(existing["password_hash"]):
+            await db.execute(
+                """
+                UPDATE users
+                SET password_hash = $1, updated_at = CURRENT_TIMESTAMP
+                WHERE id = $2
+                """,
+                hash_password(existing["password_hash"]),
+                existing["id"],
+            )
         return existing["id"]
 
     inserted = await db.fetchrow(

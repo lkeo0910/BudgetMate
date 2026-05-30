@@ -1,4 +1,6 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+import hmac
+
 from passlib.context import CryptContext
 from jose import JWTError, jwt
 from app.core.config import get_settings
@@ -7,7 +9,6 @@ settings = get_settings()
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 30 * 24  # 30 days
 
 
 def hash_password(password: str) -> str:
@@ -15,14 +16,22 @@ def hash_password(password: str) -> str:
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    return pwd_context.verify(plain_password, hashed_password)
+    if not hashed_password:
+        return False
+    if pwd_context.identify(hashed_password):
+        return pwd_context.verify(plain_password, hashed_password)
+    return hmac.compare_digest(plain_password, hashed_password)
+
+
+def password_needs_rehash(stored_password: str) -> bool:
+    return not pwd_context.identify(stored_password) or pwd_context.needs_update(stored_password)
 
 
 def create_access_token(user_id: int, username: str) -> str:
     to_encode = {
         "sub": str(user_id),
         "username": username,
-        "exp": datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+        "exp": datetime.now(timezone.utc) + timedelta(minutes=settings.jwt_access_token_expire_minutes)
     }
     return jwt.encode(to_encode, settings.jwt_secret_key, algorithm=ALGORITHM)
 
