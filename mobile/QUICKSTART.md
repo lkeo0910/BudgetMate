@@ -12,12 +12,16 @@ Terminal 1, start the backend:
 cd backend
 uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
+cd backend
+uv sync
+uv run uvicorn app.main:app --host 0.0.0.0 --port 8000
 
 Terminal 2, start the mobile web app:
 
 ```bash
 cd mobile
 npm run web
+npx expo start --tunnel -c
 ```
 
 Open:
